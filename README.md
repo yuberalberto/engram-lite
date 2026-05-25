@@ -4,50 +4,42 @@
 
 engram-lite gives your AI agent memory that survives across sessions. It stores decisions, bug fixes, discoveries, and conventions in a local SQLite database — scoped to your project, never leaving your machine.
 
-## Quickstart (Claude Code)
+## Quickstart
 
-**Step 1 — Install the binary**
+### Step 1 — Install the binary
 
 Requires Go 1.21+. If you don't have Go, install it from [go.dev/dl](https://go.dev/dl).
 
 ```bash
 go install github.com/yuberalberto/engram-lite/cmd/engram-lite@latest
+engram-lite version  # verify
 ```
 
-On Windows this puts the binary at `%USERPROFILE%\go\bin\engram-lite.exe`. On macOS/Linux: `~/go/bin/engram-lite`.
-
-**Step 2 — Add the Claude Code plugin**
-
-```bash
-claude plugin add github:yuberalberto/engram-lite
-```
-
-**Step 3 — Restart Claude Code**
-
-That's it. No manual configuration needed.
-
-### What happens next
-
-- At session start, the agent is prompted to call `mem_context` and load prior memory for the current project.
-- At session end, the agent is prompted to call `mem_session_summary` to persist what was accomplished.
-- During work, the agent proactively calls `mem_save` after decisions, bug fixes, and discoveries.
-
-Memory is stored at `<project-root>/.engram-lite/engram.db` — one database per project, nothing shared across projects.
-
-## Initialize a project
-
-Before the first session in a new project, run `init` to create the database and update `.gitignore`:
+### Step 2 — Initialize your project
 
 ```bash
 cd ~/projects/my-app
 engram-lite init
 ```
 
-This creates `.engram-lite/` with `config.json` and `engram.db`. Database files are gitignored automatically; `config.json` is safe to commit.
+This creates `.engram-lite/` with a config file and the database. Database files are added to `.gitignore` automatically; `config.json` is safe to commit.
 
-## Other AI agents (raw MCP)
+### Step 3 — Connect your agent
 
-If you're not using Claude Code, add this to your agent's MCP config:
+#### Claude Code
+
+```bash
+claude plugin add github:yuberalberto/engram-lite
+```
+
+Restart Claude Code. No MCP config needed — the plugin handles everything.
+
+#### Cascade (Windsurf)
+
+Edit the global MCP config file:
+
+- **Windows:** `%USERPROFILE%\.codeium\windsurf\mcp_config.json`
+- **macOS/Linux:** `~/.codeium/windsurf/mcp_config.json`
 
 ```json
 {
@@ -60,9 +52,36 @@ If you're not using Claude Code, add this to your agent's MCP config:
 }
 ```
 
-Make sure `engram-lite` is in your `PATH`. If not, use the full path to the binary.
+> `engram-lite` must be in your PATH. After `go install` it will be at `~/go/bin/engram-lite` (macOS/Linux) or `%USERPROFILE%\go\bin\engram-lite.exe` (Windows). If your agent can't find it, use the full path as the `command` value.
 
-### Tool profiles
+#### Other agents
+
+Add the following to your agent's MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "engram-lite": {
+      "command": "engram-lite",
+      "args": ["mcp", "--tools=agent"]
+    }
+  }
+}
+```
+
+---
+
+## Memory protocol
+
+Once connected, the agent works proactively:
+
+- **Session start** — loads prior context for the current project (`mem_context`)
+- **During work** — saves decisions, bug fixes, and discoveries as they happen (`mem_save`)
+- **Session end** — persists a summary of what was accomplished (`mem_session_summary`)
+
+Memory is stored at `<project-root>/.engram-lite/engram.db` — one database per project, nothing shared across projects.
+
+## Tool profiles
 
 | Profile | Tools | Use for |
 |---------|-------|---------|
@@ -128,7 +147,7 @@ cp ~/.engram-lite/backups/my-project/engram.db.bak ./.engram-lite/engram.db
 engram-lite update
 ```
 
-Or reinstall with `go install ... @latest`.
+Or reinstall: `go install github.com/yuberalberto/engram-lite/cmd/engram-lite@latest`
 
 ## How it compares to Engram
 
