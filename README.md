@@ -8,7 +8,7 @@ A lightweight fork of [Engram](https://github.com/Gentleman-Programming/engram) 
 
 | Feature | Engram | engram-lite |
 |---------|--------|-------------|
-| Database location | `~/.engram-lite/engram.db` (global) | `<project-root>/.engram-lite/engram.db` (local) |
+| Database location | `~/.engram/engram.db` (global) | `<project-root>/.engram-lite/engram.db` (local) |
 | Cloud sync | ✅ | ❌ Removed |
 | Obsidian export | ✅ | ❌ Removed |
 | LLM conflict resolution | ✅ | ❌ Removed |
@@ -39,6 +39,9 @@ go build -o engram-lite ./cmd/engram-lite
 # Navigate to your project directory
 cd ~/projects/my-app
 
+# Initialize engram-lite (creates .engram-lite/ with config.json + engram.db)
+engram-lite init
+
 # Save a memory
 engram-lite save "Architecture decision" "Using PostgreSQL for persistence due to JSONB support"
 
@@ -63,10 +66,29 @@ The project root is detected by walking up from the current working directory to
 
 **Override:** Set `ENGRAM_DATA_DIR` environment variable to use a custom path.
 
-**Tip:** Add `.engram-lite/` to your project's `.gitignore`:
+**Gitignore:** The init command automatically configures `.gitignore` to exclude only database files:
 ```
-.engram-lite/
+.engram-lite/*.db
+.engram-lite/*.db-wal
+.engram-lite/*.db-shm
 ```
+`config.json` is safe to commit — it only contains the project name.
+
+## Automatic Backups
+
+Every time a command uses the database, engram-lite creates a backup copy before opening it:
+
+```
+~/.engram-lite/backups/<project-name>/engram.db.bak
+```
+
+If you accidentally delete your project's `.engram-lite/engram.db`, restore it by copying the backup:
+
+```bash
+cp ~/.engram-lite/backups/my-project/engram.db.bak ./.engram-lite/engram.db
+```
+
+Backups are local-only and never leave your machine.
 
 ## MCP Configuration
 
@@ -94,6 +116,7 @@ Add to your AI agent's MCP config:
 
 | Command | Description |
 |---------|-------------|
+| `init` | Initialize engram-lite in the current project |
 | `serve [port]` | Start HTTP API server (default: 7437) |
 | `mcp [--tools=PROFILE]` | Start MCP server (stdio) |
 | `tui` | Launch interactive terminal UI |
@@ -113,7 +136,7 @@ Add to your AI agent's MCP config:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `ENGRAM_DATA_DIR` | Override data directory | `<project-root>/.engram` |
+| `ENGRAM_DATA_DIR` | Override data directory | `<project-root>/.engram-lite` |
 | `ENGRAM_PORT` | HTTP server port | `7437` |
 | `ENGRAM_PROJECT` | Default project name for MCP | auto-detected |
 
