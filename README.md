@@ -25,6 +25,8 @@ A lightweight fork of [Engram](https://github.com/Gentleman-Programming/engram) 
 go install github.com/yuberalberto/engram-lite/cmd/engram-lite@latest
 ```
 
+`@latest` always installs the newest release. For a specific version, use `@v0.1.1`.
+
 Or build from source:
 
 ```bash
