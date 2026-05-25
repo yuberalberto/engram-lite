@@ -227,7 +227,7 @@ func TestDetectProjectFull_ConfigFromRepoRootOverridesRemoteFromSubdir(t *testin
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git remote add: %v\n%s", err, out)
 	}
-	configDir := filepath.Join(root, ".engram")
+	configDir := filepath.Join(root, ".engram-lite")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +258,7 @@ func TestDetectProjectFull_NearestSubprojectConfigOverridesRepoRoot(t *testing.T
 	root := t.TempDir()
 	initGit(t, root)
 
-	rootConfigDir := filepath.Join(root, ".engram")
+	rootConfigDir := filepath.Join(root, ".engram-lite")
 	if err := os.MkdirAll(rootConfigDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +267,7 @@ func TestDetectProjectFull_NearestSubprojectConfigOverridesRepoRoot(t *testing.T
 	}
 
 	backend := filepath.Join(root, "backend")
-	backendConfigDir := filepath.Join(backend, ".engram")
+	backendConfigDir := filepath.Join(backend, ".engram-lite")
 	if err := os.MkdirAll(backendConfigDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +305,7 @@ func TestDetectProjectFull_MonorepoSubprojectConfigsResolveIndependently(t *test
 		backend:  "backend-app",
 		frontend: "frontend-app",
 	} {
-		configDir := filepath.Join(path, ".engram")
+		configDir := filepath.Join(path, ".engram-lite")
 		if err := os.MkdirAll(configDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -345,7 +345,7 @@ func TestDetectProjectFull_MonorepoSubprojectConfigsResolveIndependently(t *test
 
 func TestDetectProjectFull_InvalidConfigFailsClearly(t *testing.T) {
 	dir := t.TempDir()
-	configDir := filepath.Join(dir, ".engram")
+	configDir := filepath.Join(dir, ".engram-lite")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -365,7 +365,7 @@ func TestDetectProjectFull_InvalidConfigFailsClearly(t *testing.T) {
 
 func TestDetectProjectFull_DoesNotInheritParentConfigOutsideGitRepo(t *testing.T) {
 	parent := t.TempDir()
-	configDir := filepath.Join(parent, ".engram")
+	configDir := filepath.Join(parent, ".engram-lite")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -393,7 +393,7 @@ func TestDetectProjectFull_DoesNotInheritParentConfigOutsideGitRepo(t *testing.T
 func TestDetectProjectFull_InvalidRepoConfigFromSubdirFailsClearly(t *testing.T) {
 	root := t.TempDir()
 	initGit(t, root)
-	configDir := filepath.Join(root, ".engram")
+	configDir := filepath.Join(root, ".engram-lite")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -422,7 +422,7 @@ func TestDetectProjectFull_InvalidRepoConfigFromSubdirFailsClearly(t *testing.T)
 
 func TestDetectProjectFull_DoesNotLeakHomeAncestorConfigIntoNestedRepo(t *testing.T) {
 	homeLike := t.TempDir()
-	homeConfigDir := filepath.Join(homeLike, ".engram")
+	homeConfigDir := filepath.Join(homeLike, ".engram-lite")
 	if err := os.MkdirAll(homeConfigDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -8,7 +8,7 @@ A lightweight fork of [Engram](https://github.com/Gentleman-Programming/engram) 
 
 | Feature | Engram | engram-lite |
 |---------|--------|-------------|
-| Database location | `~/.engram/engram.db` (global) | `<project-root>/.engram/engram.db` (local) |
+| Database location | `~/.engram-lite/engram.db` (global) | `<project-root>/.engram-lite/engram.db` (local) |
 | Cloud sync | ✅ | ❌ Removed |
 | Obsidian export | ✅ | ❌ Removed |
 | LLM conflict resolution | ✅ | ❌ Removed |
@@ -57,15 +57,15 @@ engram-lite stats
 
 ## Data Storage
 
-engram-lite stores its SQLite database at `<project-root>/.engram/engram.db`.
+engram-lite stores its SQLite database at `<project-root>/.engram-lite/engram.db`.
 
 The project root is detected by walking up from the current working directory to find a `.git/` directory. If no `.git/` is found, the current directory is used.
 
 **Override:** Set `ENGRAM_DATA_DIR` environment variable to use a custom path.
 
-**Tip:** Add `.engram/` to your project's `.gitignore`:
+**Tip:** Add `.engram-lite/` to your project's `.gitignore`:
 ```
-.engram/
+.engram-lite/
 ```
 
 ## MCP Configuration

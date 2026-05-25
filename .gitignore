@@ -31,4 +31,4 @@ engram-dev
 .release-notes-beta.md
 
 # engram-lite local data
-.engram/
+.engram-lite/

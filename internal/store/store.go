@@ -429,7 +429,7 @@ func DefaultConfig() (Config, error) {
 		return Config{}, fmt.Errorf("engram: determine home directory: %w", err)
 	}
 	return Config{
-		DataDir:              filepath.Join(home, ".engram"),
+		DataDir:              filepath.Join(home, ".engram-lite"),
 		MaxObservationLength: 50000,
 		MaxContextResults:    20,
 		MaxSearchResults:     20,

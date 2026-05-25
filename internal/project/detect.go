@@ -21,9 +21,9 @@ import (
 // multiple git repositories and we cannot auto-select one.
 var ErrAmbiguousProject = errors.New("ambiguous project: multiple git repos found in cwd")
 
-// ErrInvalidConfig is returned when .engram/config.json exists but cannot be
+// ErrInvalidConfig is returned when .engram-lite/config.json exists but cannot be
 // used as a project write lock.
-var ErrInvalidConfig = errors.New("invalid .engram/config.json")
+var ErrInvalidConfig = errors.New("invalid .engram-lite/config.json")
 
 // Source constants describe how the project name was resolved.
 const (
@@ -39,7 +39,7 @@ const (
 	// project from the ambiguity result's available_projects list.
 	SourceUserSelectedAfterAmbiguousProject = "user_selected_after_ambiguous_project"
 	SourceRequestBody                       = "request_body" // REQ-414: project came from the request body (server-side, no filesystem path)
-	SourceConfig                            = "config"       // derived from .engram/config.json project_name
+	SourceConfig                            = "config"       // derived from .engram-lite/config.json project_name
 )
 
 // noiseSet lists directory names that are skipped during child-repo scanning.
@@ -74,7 +74,7 @@ type DetectionResult struct {
 
 // DetectProjectFull resolves the project for dir using a 5-case algorithm:
 //
-//  0. config     — nearest .engram/config.json inside the enclosing repo/root
+//  0. config     — nearest .engram-lite/config.json inside the enclosing repo/root
 //  1. git_remote — cwd is a git root with a remote → derive name from remote URL
 //  2. git_root   — cwd is inside a git repo → use repo root basename
 //  3. git_child  — cwd has exactly one git-repo child → auto-promote it
@@ -184,8 +184,8 @@ func detectFromConfig(dir string) (DetectionResult, bool) {
 
 	// Project config is a project/repo lock, not a global ancestor setting. When
 	// cwd is inside git, walk upward only within the enclosing repository so a
-	// nearest subproject .engram/config.json can override the repo root without
-	// letting ~/.engram/config.json leak into nested workspaces under $HOME.
+	// nearest subproject .engram-lite/config.json can override the repo root without
+	// letting ~/.engram-lite/config.json leak into nested workspaces under $HOME.
 	if gitRoot := canonicalizePath(detectGitRootDir(absDir)); gitRoot != "" {
 		return readNearestConfigAtOrBelow(absDir, gitRoot)
 	}
@@ -217,7 +217,7 @@ func readNearestConfigAtOrBelow(startDir, stopDir string) (DetectionResult, bool
 }
 
 func readConfigAt(projectDir string) (DetectionResult, bool) {
-	configPath := filepath.Join(projectDir, ".engram", "config.json")
+	configPath := filepath.Join(projectDir, ".engram-lite", "config.json")
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {

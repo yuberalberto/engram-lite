@@ -131,6 +131,9 @@ func main() {
 	case "help", "--help", "-h":
 		printUsage()
 		return
+	case "init":
+		cmdInit()
+		return
 	}
 
 	cfg, cfgErr := resolveConfig()
@@ -182,11 +185,78 @@ func resolveConfig() (store.Config, error) {
 		return store.Config{}, fmt.Errorf("engram-lite: %w", err)
 	}
 
-	dataDir := filepath.Join(projectRoot, ".engram")
+	dataDir := filepath.Join(projectRoot, ".engram-lite")
 	return store.FallbackConfig(dataDir), nil
 }
 
 // ─── Commands ────────────────────────────────────────────────────────────────
+
+func cmdInit() {
+	projectRoot, err := detectProjectRoot()
+	if err != nil {
+		fatal(fmt.Errorf("engram-lite init: %w", err))
+	}
+
+	dataDir := filepath.Join(projectRoot, ".engram-lite")
+
+	// Check if already initialized
+	if _, err := os.Stat(dataDir); err == nil {
+		fmt.Printf("Already initialized: %s\n", dataDir)
+		return
+	}
+
+	// Create .engram-lite directory
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		fatal(fmt.Errorf("engram-lite init: create directory: %w", err))
+	}
+
+	// Detect project name
+	projectName := filepath.Base(projectRoot)
+	result := project.DetectProjectFull(projectRoot)
+	if result.Project != "" {
+		projectName = result.Project
+	}
+
+	// Write config.json
+	config := map[string]string{"project_name": projectName}
+	configBytes, _ := json.MarshalIndent(config, "", "  ")
+	configPath := filepath.Join(dataDir, "config.json")
+	if err := os.WriteFile(configPath, configBytes, 0o644); err != nil {
+		fatal(fmt.Errorf("engram-lite init: write config: %w", err))
+	}
+
+	// Try to add .engram-lite/ to .gitignore
+	gitignorePath := filepath.Join(projectRoot, ".gitignore")
+	gitignoreEntry := ".engram-lite/"
+	addedToGitignore := false
+
+	if content, err := os.ReadFile(gitignorePath); err == nil {
+		if !strings.Contains(string(content), gitignoreEntry) {
+			f, err := os.OpenFile(gitignorePath, os.O_APPEND|os.O_WRONLY, 0o644)
+			if err == nil {
+				fmt.Fprintf(f, "\n# engram-lite local data\n%s\n", gitignoreEntry)
+				f.Close()
+				addedToGitignore = true
+			}
+		} else {
+			addedToGitignore = true // already there
+		}
+	} else {
+		// .gitignore doesn't exist, create it
+		if err := os.WriteFile(gitignorePath, []byte(fmt.Sprintf("# engram-lite local data\n%s\n", gitignoreEntry)), 0o644); err == nil {
+			addedToGitignore = true
+		}
+	}
+
+	fmt.Printf("Initialized engram-lite in %s\n", dataDir)
+	fmt.Printf("  Project: %s\n", projectName)
+	fmt.Printf("  Config:  %s\n", configPath)
+	if addedToGitignore {
+		fmt.Printf("  Added .engram-lite/ to .gitignore\n")
+	} else {
+		fmt.Printf("  Note: add '.engram-lite/' to your .gitignore\n")
+	}
+}
 
 func cmdServe(cfg store.Config) {
 	port := 7437
@@ -1361,6 +1431,7 @@ Usage:
   engram-lite <command> [arguments]
 
 Commands:
+  init               Initialize engram-lite in the current project
   serve [port]       Start HTTP API server (default: 7437)
   mcp [--tools=PROFILE]
                      Start MCP server (stdio transport, for any AI agent)
@@ -1386,12 +1457,12 @@ Commands:
   help               Show this help
 
 Environment:
-  ENGRAM_DATA_DIR    Override data directory (default: <project-root>/.engram)
+  ENGRAM_DATA_DIR    Override data directory (default: <project-root>/.engram-lite)
   ENGRAM_PORT        Override HTTP server port (default: 7437)
   ENGRAM_PROJECT     Default project name override for MCP
 
 Data Storage:
-  engram-lite stores its SQLite database in <project-root>/.engram/engram.db
+  engram-lite stores its SQLite database in <project-root>/.engram-lite/engram.db
   The project root is detected by walking up from cwd to find .git/.
   If no .git/ is found, cwd is used as project root.
 
