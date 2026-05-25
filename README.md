@@ -128,6 +128,7 @@ Add to your AI agent's MCP config:
 | `context [project]` | Show recent context |
 | `stats` | Show memory stats |
 | `doctor` | Run diagnostics |
+| `update` | Update to the latest version |
 | `export [file]` | Export memories to JSON |
 | `import <file>` | Import memories from JSON |
 | `projects list` | List projects |

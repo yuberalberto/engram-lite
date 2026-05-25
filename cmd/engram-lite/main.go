@@ -18,6 +18,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
@@ -135,6 +136,9 @@ func main() {
 	case "init":
 		cmdInit()
 		return
+	case "update":
+		cmdUpdate()
+		return
 	}
 
 	cfg, cfgErr := resolveConfig()
@@ -239,6 +243,19 @@ func backupDB(dataDir string) {
 }
 
 // ─── Commands ────────────────────────────────────────────────────────────────
+
+func cmdUpdate() {
+	fmt.Println("Updating engram-lite...")
+	cmd := exec.Command("go", "install", "github.com/yuberalberto/engram-lite/cmd/engram-lite@latest")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Update failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Make sure Go is installed and GOPATH/bin is in your PATH.\n")
+		os.Exit(1)
+	}
+	fmt.Println("Update complete. Run `engram-lite version` to verify.")
+}
 
 func cmdInit() {
 	projectRoot, err := detectProjectRoot()
@@ -1514,6 +1531,8 @@ Commands:
 
   version            Print version
   help               Show this help
+
+  update             Update to the latest version
 
 Environment:
   ENGRAM_DATA_DIR    Override data directory (default: <project-root>/.engram-lite)
