@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -141,6 +142,9 @@ func main() {
 		fatal(cfgErr)
 	}
 
+	// Backup DB to ~/.engram-lite/backups/<project>/ before use
+	backupDB(cfg.DataDir)
+
 	switch os.Args[1] {
 	case "serve":
 		cmdServe(cfg)
@@ -189,6 +193,51 @@ func resolveConfig() (store.Config, error) {
 	return store.FallbackConfig(dataDir), nil
 }
 
+// backupDB copies the existing database to ~/.engram-lite/backups/<project>/
+// before any command uses it. Silently skips if the DB doesn't exist yet.
+func backupDB(dataDir string) {
+	dbPath := filepath.Join(dataDir, "engram.db")
+	if _, err := os.Stat(dbPath); err != nil {
+		return // no DB yet, nothing to back up
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return // can't determine home, skip silently
+	}
+
+	// Use project name from config.json if available, else directory name
+	projectName := filepath.Base(filepath.Dir(dataDir))
+	configPath := filepath.Join(dataDir, "config.json")
+	if data, err := os.ReadFile(configPath); err == nil {
+		var cfg map[string]string
+		if json.Unmarshal(data, &cfg) == nil && cfg["project_name"] != "" {
+			projectName = cfg["project_name"]
+		}
+	}
+
+	backupDir := filepath.Join(home, ".engram-lite", "backups", projectName)
+	if err := os.MkdirAll(backupDir, 0o755); err != nil {
+		return
+	}
+
+	backupPath := filepath.Join(backupDir, "engram.db.bak")
+
+	src, err := os.Open(dbPath)
+	if err != nil {
+		return
+	}
+	defer src.Close()
+
+	dst, err := os.Create(backupPath)
+	if err != nil {
+		return
+	}
+	defer dst.Close()
+
+	io.Copy(dst, src)
+}
+
 // ─── Commands ────────────────────────────────────────────────────────────────
 
 func cmdInit() {
@@ -233,16 +282,16 @@ func cmdInit() {
 	}
 	db.Close()
 
-	// Try to add .engram-lite/ to .gitignore
+	// Add DB files to .gitignore (config.json is safe to commit)
 	gitignorePath := filepath.Join(projectRoot, ".gitignore")
-	gitignoreEntry := ".engram-lite/"
+	gitignoreEntry := ".engram-lite/*.db\n.engram-lite/*.db-wal\n.engram-lite/*.db-shm"
 	addedToGitignore := false
 
 	if content, err := os.ReadFile(gitignorePath); err == nil {
-		if !strings.Contains(string(content), gitignoreEntry) {
+		if !strings.Contains(string(content), ".engram-lite/*.db") {
 			f, err := os.OpenFile(gitignorePath, os.O_APPEND|os.O_WRONLY, 0o644)
 			if err == nil {
-				fmt.Fprintf(f, "\n# engram-lite local data\n%s\n", gitignoreEntry)
+				fmt.Fprintf(f, "\n# engram-lite database (config.json is safe to commit)\n%s\n", gitignoreEntry)
 				f.Close()
 				addedToGitignore = true
 			}
@@ -251,7 +300,7 @@ func cmdInit() {
 		}
 	} else {
 		// .gitignore doesn't exist, create it
-		if err := os.WriteFile(gitignorePath, []byte(fmt.Sprintf("# engram-lite local data\n%s\n", gitignoreEntry)), 0o644); err == nil {
+		if err := os.WriteFile(gitignorePath, []byte(fmt.Sprintf("# engram-lite database (config.json is safe to commit)\n%s\n", gitignoreEntry)), 0o644); err == nil {
 			addedToGitignore = true
 		}
 	}
@@ -260,10 +309,11 @@ func cmdInit() {
 	fmt.Printf("  Project:  %s\n", projectName)
 	fmt.Printf("  Database: %s\n", filepath.Join(dataDir, "engram.db"))
 	fmt.Printf("  Config:   %s\n", configPath)
+	fmt.Printf("  Backup:   ~/.engram-lite/backups/%s/\n", projectName)
 	if addedToGitignore {
-		fmt.Printf("  Added .engram-lite/ to .gitignore\n")
+		fmt.Printf("  Updated .gitignore (DB excluded, config.json committed)\n")
 	} else {
-		fmt.Printf("  Note: add '.engram-lite/' to your .gitignore\n")
+		fmt.Printf("  Note: .gitignore already configured\n")
 	}
 }
 

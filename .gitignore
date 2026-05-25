@@ -32,3 +32,8 @@ engram-dev
 
 # engram-lite local data
 .engram-lite/
+
+# engram-lite database (config.json is safe to commit)
+.engram-lite/*.db
+.engram-lite/*.db-wal
+.engram-lite/*.db-shm
