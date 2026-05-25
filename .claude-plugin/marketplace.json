@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "engram-lite",
+  "description": "Project-local persistent memory for AI coding agents — single binary, zero dependencies",
+  "owner": {
+    "name": "yuberalberto",
+    "email": "yuberalberto@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "engram-lite",
+      "description": "Persistent memory with session tracking and Memory Protocol. Project-local SQLite storage. Requires engram-lite binary in PATH.",
+      "version": "0.1.5",
+      "source": "./plugin/claude-code",
+      "category": "productivity"
+    }
+  ]
+}

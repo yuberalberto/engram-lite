@@ -55,6 +55,10 @@ type MCPConfig struct {
 	// mem_save call (REQ-001). nil means "use the store default" (3).
 	// An explicit pointer value (including 0) is forwarded directly.
 	Limit *int
+
+	// Version is the server version reported in the MCP initialize response.
+	// Defaults to "dev" if empty.
+	Version string
 }
 
 var suggestTopicKey = store.SuggestTopicKey
@@ -230,9 +234,13 @@ func NewServerWithConfig(s *store.Store, cfg MCPConfig, allowlist map[string]boo
 }
 
 func newServerWithActivity(s *store.Store, cfg MCPConfig, allowlist map[string]bool, activity *SessionActivity) *server.MCPServer {
+	ver := cfg.Version
+	if ver == "" {
+		ver = "dev"
+	}
 	srv := server.NewMCPServer(
-		"engram",
-		"0.1.0",
+		"engram-lite",
+		ver,
 		server.WithToolCapabilities(true),
 		server.WithInstructions(serverInstructions),
 	)

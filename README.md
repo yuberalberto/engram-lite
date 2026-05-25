@@ -2,105 +2,57 @@
 
 **Project-local persistent memory for AI coding agents.**
 
-A lightweight fork of [Engram](https://github.com/Gentleman-Programming/engram) by Gentleman Programming, simplified for single-project, local-only use.
+engram-lite gives your AI agent memory that survives across sessions. It stores decisions, bug fixes, discoveries, and conventions in a local SQLite database — scoped to your project, never leaving your machine.
 
-## What's Different from Engram?
+## Quickstart (Claude Code)
 
-| Feature | Engram | engram-lite |
-|---------|--------|-------------|
-| Database location | `~/.engram/engram.db` (global) | `<project-root>/.engram-lite/engram.db` (local) |
-| Cloud sync | ✅ | ❌ Removed |
-| Obsidian export | ✅ | ❌ Removed |
-| LLM conflict resolution | ✅ | ❌ Removed |
-| Agent plugin setup | ✅ | ❌ Removed |
-| Docker support | ✅ | ❌ Removed |
-| MCP server | ✅ | ✅ |
-| HTTP API | ✅ | ✅ |
-| TUI | ✅ | ✅ (simplified) |
-| CLI commands | Full | Core subset |
+**Step 1 — Install the binary**
 
-## Installation
+Requires Go 1.21+. If you don't have Go, install it from [go.dev/dl](https://go.dev/dl).
 
 ```bash
 go install github.com/yuberalberto/engram-lite/cmd/engram-lite@latest
 ```
 
-`@latest` always installs the newest release. For a specific version, use `@v0.1.1`.
+On Windows this puts the binary at `%USERPROFILE%\go\bin\engram-lite.exe`. On macOS/Linux: `~/go/bin/engram-lite`.
 
-Or build from source:
+**Step 2 — Add the Claude Code plugin**
 
 ```bash
-git clone https://github.com/yuberalberto/engram-lite.git
-cd engram-lite
-go build -o engram-lite ./cmd/engram-lite
+claude plugin add github:yuberalberto/engram-lite
 ```
 
-## Quick Start
+**Step 3 — Restart Claude Code**
+
+That's it. No manual configuration needed.
+
+### What happens next
+
+- At session start, the agent is prompted to call `mem_context` and load prior memory for the current project.
+- At session end, the agent is prompted to call `mem_session_summary` to persist what was accomplished.
+- During work, the agent proactively calls `mem_save` after decisions, bug fixes, and discoveries.
+
+Memory is stored at `<project-root>/.engram-lite/engram.db` — one database per project, nothing shared across projects.
+
+## Initialize a project
+
+Before the first session in a new project, run `init` to create the database and update `.gitignore`:
 
 ```bash
-# Navigate to your project directory
 cd ~/projects/my-app
-
-# Initialize engram-lite (creates .engram-lite/ with config.json + engram.db)
 engram-lite init
-
-# Save a memory
-engram-lite save "Architecture decision" "Using PostgreSQL for persistence due to JSONB support"
-
-# Search memories
-engram-lite search "database"
-
-# Start MCP server (for AI agents)
-engram-lite mcp --tools=agent
-
-# Launch TUI
-engram-lite tui
-
-# View stats
-engram-lite stats
 ```
 
-## Data Storage
+This creates `.engram-lite/` with `config.json` and `engram.db`. Database files are gitignored automatically; `config.json` is safe to commit.
 
-engram-lite stores its SQLite database at `<project-root>/.engram-lite/engram.db`.
+## Other AI agents (raw MCP)
 
-The project root is detected by walking up from the current working directory to find a `.git/` directory. If no `.git/` is found, the current directory is used.
-
-**Override:** Set `ENGRAM_DATA_DIR` environment variable to use a custom path.
-
-**Gitignore:** The init command automatically configures `.gitignore` to exclude only database files:
-```
-.engram-lite/*.db
-.engram-lite/*.db-wal
-.engram-lite/*.db-shm
-```
-`config.json` is safe to commit — it only contains the project name.
-
-## Automatic Backups
-
-Every time a command uses the database, engram-lite creates a backup copy before opening it:
-
-```
-~/.engram-lite/backups/<project-name>/engram.db.bak
-```
-
-If you accidentally delete your project's `.engram-lite/engram.db`, restore it by copying the backup:
-
-```bash
-cp ~/.engram-lite/backups/my-project/engram.db.bak ./.engram-lite/engram.db
-```
-
-Backups are local-only and never leave your machine.
-
-## MCP Configuration
-
-Add to your AI agent's MCP config:
+If you're not using Claude Code, add this to your agent's MCP config:
 
 ```json
 {
-  "mcp": {
-    "engram": {
-      "type": "stdio",
+  "mcpServers": {
+    "engram-lite": {
       "command": "engram-lite",
       "args": ["mcp", "--tools=agent"]
     }
@@ -108,24 +60,28 @@ Add to your AI agent's MCP config:
 }
 ```
 
-### Tool Profiles
+Make sure `engram-lite` is in your `PATH`. If not, use the full path to the binary.
 
-- **agent** (15 tools) — Tools AI agents use during coding sessions
-- **admin** (4 tools) — Tools for manual curation and dashboards
-- **all** (default) — Every tool registered
+### Tool profiles
 
-## CLI Commands
+| Profile | Tools | Use for |
+|---------|-------|---------|
+| `agent` | 15 | AI agents during coding sessions |
+| `admin` | 4 | Manual curation and dashboards |
+| `all` | All | Everything |
+
+## CLI reference
 
 | Command | Description |
 |---------|-------------|
 | `init` | Initialize engram-lite in the current project |
-| `serve [port]` | Start HTTP API server (default: 7437) |
 | `mcp [--tools=PROFILE]` | Start MCP server (stdio) |
+| `serve [port]` | Start HTTP API server (default: 7437) |
 | `tui` | Launch interactive terminal UI |
 | `search <query>` | Search memories |
 | `save <title> <content>` | Save a memory |
-| `timeline <obs_id>` | Show chronological context |
 | `context [project]` | Show recent context |
+| `timeline <obs_id>` | Show chronological context |
 | `stats` | Show memory stats |
 | `doctor` | Run diagnostics |
 | `update` | Update to the latest version |
@@ -134,8 +90,31 @@ Add to your AI agent's MCP config:
 | `projects list` | List projects |
 | `projects consolidate` | Merge similar project names |
 | `projects prune` | Remove empty projects |
+| `version` | Show version |
 
-## Environment Variables
+## Data storage
+
+Database location: `<project-root>/.engram-lite/engram.db`
+
+The project root is the nearest parent directory containing `.git/`. If none is found, the current directory is used.
+
+**Override:** Set `ENGRAM_DATA_DIR` to use a custom path.
+
+## Automatic backups
+
+Every database open creates a backup at:
+
+```
+~/.engram-lite/backups/<project-name>/engram.db.bak
+```
+
+To restore after an accidental deletion:
+
+```bash
+cp ~/.engram-lite/backups/my-project/engram.db.bak ./.engram-lite/engram.db
+```
+
+## Environment variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
@@ -143,12 +122,28 @@ Add to your AI agent's MCP config:
 | `ENGRAM_PORT` | HTTP server port | `7437` |
 | `ENGRAM_PROJECT` | Default project name for MCP | auto-detected |
 
+## Updating
+
+```bash
+engram-lite update
+```
+
+Or reinstall with `go install ... @latest`.
+
+## How it compares to Engram
+
+engram-lite is a fork of [Engram](https://github.com/Gentleman-Programming/engram) by Gentleman Programming, simplified for single-project, local-only use.
+
+| Feature | Engram | engram-lite |
+|---------|--------|-------------|
+| Database location | `~/.engram/engram.db` (global) | `<project-root>/.engram-lite/engram.db` (local) |
+| Cloud sync | ✅ | ❌ |
+| Obsidian export | ✅ | ❌ |
+| LLM conflict resolution | ✅ | ❌ |
+| MCP server | ✅ | ✅ |
+| HTTP API | ✅ | ✅ |
+| TUI | ✅ | ✅ (simplified) |
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
-
-## Attribution
-
-This project is a fork of [Engram](https://github.com/Gentleman-Programming/engram) created by [Gentleman Programming](https://github.com/Gentleman-Programming). The original project is licensed under MIT.
-
-engram-lite removes cloud synchronization, LLM integration, and plugin setup features to provide a simpler, project-local memory store for AI coding agents.

@@ -1,0 +1,11 @@
+{
+  "name": "engram-lite",
+  "description": "Project-local persistent memory for AI coding agents. Single binary, zero dependencies.",
+  "version": "0.1.5",
+  "author": {
+    "name": "yuberalberto"
+  },
+  "homepage": "https://github.com/yuberalberto/engram-lite",
+  "repository": "https://github.com/yuberalberto/engram-lite",
+  "license": "MIT"
+}

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "engram-lite": {
+      "command": "powershell",
+      "args": ["-NoProfile", "-NonInteractive", "-File", "${CLAUDE_PLUGIN_ROOT}/scripts/start-mcp.ps1"]
+    }
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "description": "engram-lite persistent memory hooks — session tracking and compaction recovery",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/session-start.ps1",
+            "shell": "powershell",
+            "timeout": 10,
+            "statusMessage": "Loading engram-lite memory..."
+          }
+        ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/session-start.ps1",
+            "shell": "powershell",
+            "timeout": 10,
+            "statusMessage": "Recovering engram-lite context after compaction..."
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/session-end.ps1",
+            "shell": "powershell",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}

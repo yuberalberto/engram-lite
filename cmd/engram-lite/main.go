@@ -414,7 +414,7 @@ func cmdMCP(cfg store.Config) {
 	}
 	defer s.Close()
 
-	mcpCfg := mcp.MCPConfig{DefaultProject: projectOverride}
+	mcpCfg := mcp.MCPConfig{DefaultProject: projectOverride, Version: version}
 	allowlist := resolveMCPTools(toolsFilter)
 	mcpSrv := newMCPServerWithConfig(s, mcpCfg, allowlist)
 
