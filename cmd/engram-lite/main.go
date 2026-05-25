@@ -198,7 +198,7 @@ func resolveConfig() (store.Config, error) {
 }
 
 // backupDB copies the existing database to ~/.engram-lite/backups/<project>/
-// before any command uses it. Silently skips if the DB doesn't exist yet.
+// once per day. Silently skips if the DB doesn't exist or was already backed up today.
 func backupDB(dataDir string) {
 	dbPath := filepath.Join(dataDir, "engram.db")
 	if _, err := os.Stat(dbPath); err != nil {
@@ -225,6 +225,16 @@ func backupDB(dataDir string) {
 		return
 	}
 
+	// Check if already backed up within the last 12 hours
+	timestampPath := filepath.Join(backupDir, ".last-backup")
+	if data, err := os.ReadFile(timestampPath); err == nil {
+		if lastUnix, parseErr := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64); parseErr == nil {
+			if time.Now().Unix()-lastUnix < 12*60*60 {
+				return // less than 12 hours since last backup
+			}
+		}
+	}
+
 	backupPath := filepath.Join(backupDir, "engram.db.bak")
 
 	src, err := os.Open(dbPath)
@@ -240,6 +250,9 @@ func backupDB(dataDir string) {
 	defer dst.Close()
 
 	io.Copy(dst, src)
+
+	// Mark backup time
+	os.WriteFile(timestampPath, []byte(fmt.Sprintf("%d", time.Now().Unix())), 0o644)
 }
 
 // ─── Commands ────────────────────────────────────────────────────────────────
