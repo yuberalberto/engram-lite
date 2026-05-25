@@ -225,6 +225,14 @@ func cmdInit() {
 		fatal(fmt.Errorf("engram-lite init: write config: %w", err))
 	}
 
+	// Create the database (runs migrations, ready to use)
+	cfg := store.FallbackConfig(dataDir)
+	db, err := store.New(cfg)
+	if err != nil {
+		fatal(fmt.Errorf("engram-lite init: create database: %w", err))
+	}
+	db.Close()
+
 	// Try to add .engram-lite/ to .gitignore
 	gitignorePath := filepath.Join(projectRoot, ".gitignore")
 	gitignoreEntry := ".engram-lite/"
@@ -249,8 +257,9 @@ func cmdInit() {
 	}
 
 	fmt.Printf("Initialized engram-lite in %s\n", dataDir)
-	fmt.Printf("  Project: %s\n", projectName)
-	fmt.Printf("  Config:  %s\n", configPath)
+	fmt.Printf("  Project:  %s\n", projectName)
+	fmt.Printf("  Database: %s\n", filepath.Join(dataDir, "engram.db"))
+	fmt.Printf("  Config:   %s\n", configPath)
 	if addedToGitignore {
 		fmt.Printf("  Added .engram-lite/ to .gitignore\n")
 	} else {
