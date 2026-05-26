@@ -2237,6 +2237,16 @@ func resolveSaveWriteProject(s *store.Store, projectChoice string, explicitProje
 			}
 		}
 
+		// Allow write when the explicit project matches the CWD-detected project,
+		// regardless of detection source. The project need not pre-exist in the store.
+		if cwdProject, _ := store.NormalizeProject(cwdRes.Project); cwdProject != "" && cwdProject == project {
+			return projectpkg.DetectionResult{
+				Project: project,
+				Source:  projectpkg.SourceExplicitOverride,
+				Path:    cwdRes.Path,
+			}, nil
+		}
+
 		return projectpkg.DetectionResult{AvailableProjects: knownWriteProjects(s, cwdRes)}, &unknownProjectError{
 			Name:              project,
 			AvailableProjects: knownWriteProjects(s, cwdRes),
@@ -2450,15 +2460,22 @@ func resolveAmbiguousChoicePath(ambiguousParent, choice string) string {
 	return ""
 }
 
-// resolveReadProject validates an optional project override against the store.
-// If override is empty, falls back to auto-detection from cwd.
-// JW2: normalizes the override (lowercase+trim) before ProjectExists lookup so
-// that e.g. "MyApp" and "  myapp  " both resolve to the stored "myapp".
+// resolveReadProjectWithProcessOverride determines the effective project for a read
+// operation. Agents may only read from the authoritative project for this process
+// (derived from defaultProject or CWD); explicit overrides that name a different
+// project are rejected to prevent cross-project data leakage.
 func resolveReadProjectWithProcessOverride(s *store.Store, override, defaultProject string) (projectpkg.DetectionResult, error) {
-	if strings.TrimSpace(override) == "" {
-		if res, ok := processProjectResult(defaultProject); ok {
-			return res, nil
+	if res, ok := processProjectResult(defaultProject); ok {
+		if override = strings.TrimSpace(override); override != "" {
+			normalized, _ := store.NormalizeProject(override)
+			if normalized != res.Project {
+				return projectpkg.DetectionResult{}, &invalidExplicitProjectError{
+					Name:   normalized,
+					Reason: "cross-project reads are not allowed; current project is " + res.Project,
+				}
+			}
 		}
+		return res, nil
 	}
 	return resolveReadProject(s, override)
 }
@@ -2468,23 +2485,33 @@ func resolveReadProject(s *store.Store, override string) (projectpkg.DetectionRe
 	if override == "" {
 		return resolveWriteProject()
 	}
+	// An explicit override was provided. Detect the authoritative project from the
+	// process CWD and reject any attempt to cross project boundaries.
+	authRes, err := resolveWriteProject()
+	if err != nil {
+		return projectpkg.DetectionResult{}, err
+	}
 	normalized, _ := store.NormalizeProject(override)
+	if normalized != authRes.Project {
+		return projectpkg.DetectionResult{}, &invalidExplicitProjectError{
+			Name:   normalized,
+			Reason: "cross-project reads are not allowed; current project is " + authRes.Project,
+		}
+	}
 	exists, err := s.ProjectExists(normalized)
 	if err != nil {
 		return projectpkg.DetectionResult{}, err
 	}
 	if !exists {
-		// Collect available projects for the error.
-		stats, _ := s.Stats()
 		return projectpkg.DetectionResult{}, &unknownProjectError{
 			Name:              normalized,
-			AvailableProjects: stats.Projects,
+			AvailableProjects: nil, // Do not expose other project names.
 		}
 	}
 	return projectpkg.DetectionResult{
 		Project: normalized,
-		Source:  projectpkg.SourceExplicitOverride, // JR2-2: use named constant
-		Path:    "",
+		Source:  projectpkg.SourceExplicitOverride,
+		Path:    authRes.Path,
 	}, nil
 }
 
@@ -2567,7 +2594,7 @@ func writeProjectErrorResult(activity *SessionActivity, sessionID string, res pr
 	var unknownProjectErr *unknownProjectError
 	if errors.As(err, &unknownProjectErr) {
 		return errorWithMeta("unknown_project",
-			fmt.Sprintf("Project %q is not backed by known context. Use an existing project, a matching session, repo .engram/config.json, or ambiguous-project recovery.", unknownProjectErr.Name),
+			fmt.Sprintf("Project %q is not backed by known context. Use an existing project, a matching session, repo .engram-lite/config.json, or ambiguous-project recovery.", unknownProjectErr.Name),
 			unknownProjectErr.AvailableProjects,
 		)
 	}
@@ -2623,9 +2650,9 @@ func errorWithMeta(code, msg string, availableProjects []string) *mcp.CallToolRe
 	}
 	switch code {
 	case "ambiguous_project":
-		envelope["hint"] = "Ask the user to choose one of available_projects, then retry mem_save or mem_save_prompt with project and project_choice_reason=user_selected_after_ambiguous_project; alternatively cd into the target repo or add repo .engram/config.json."
+		envelope["hint"] = "Ask the user to choose one of available_projects, then retry mem_save or mem_save_prompt with project and project_choice_reason=user_selected_after_ambiguous_project; alternatively cd into the target repo or add repo .engram-lite/config.json."
 	case "invalid_project_choice":
-		envelope["hint"] = "Use exactly one of available_projects after asking the user, or cd into the target repo, or add repo .engram/config.json."
+		envelope["hint"] = "Use exactly one of available_projects after asking the user, or cd into the target repo, or add repo .engram-lite/config.json."
 	case "missing_recovery_token":
 		envelope["hint"] = "Retry with the recovery_token returned by the ambiguous_project error after the user selects one available_projects value."
 	case "invalid_recovery_token":
@@ -2633,7 +2660,7 @@ func errorWithMeta(code, msg string, availableProjects []string) *mcp.CallToolRe
 	case "unknown_project":
 		envelope["hint"] = "Use one of the available_projects values, or omit project to auto-detect."
 	case "invalid_project_config":
-		envelope["hint"] = "Fix .engram/config.json so project_name is a non-empty project name."
+		envelope["hint"] = "Fix .engram-lite/config.json so project_name is a non-empty project name."
 	case "invalid_project":
 		envelope["hint"] = "Use a non-empty project name, not a path."
 	case "unknown_session":

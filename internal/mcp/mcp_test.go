@@ -132,6 +132,7 @@ func TestHandleSuggestTopicKeyRequiresInput(t *testing.T) {
 }
 
 func TestHandleSaveSuggestsTopicKeyWhenMissing(t *testing.T) {
+	cdToNamedGitRepo(t, "engram-lite")
 	s := newMCPTestStore(t)
 	h := handleSave(s, MCPConfig{}, NewSessionActivity(10*time.Minute))
 
@@ -139,7 +140,7 @@ func TestHandleSaveSuggestsTopicKeyWhenMissing(t *testing.T) {
 		"title":   "Auth architecture",
 		"content": "Define boundaries for auth middleware",
 		"type":    "architecture",
-		"project": "engram",
+		"project": "engram-lite",
 	}}}
 
 	res, err := h(context.Background(), req)
@@ -155,7 +156,7 @@ func TestHandleSaveSuggestsTopicKeyWhenMissing(t *testing.T) {
 		t.Fatalf("expected suggestion in save response, got %q", text)
 	}
 
-	obs, err := s.RecentObservations("engram", "project", 5)
+	obs, err := s.RecentObservations("engram-lite", "project", 5)
 	if err != nil {
 		t.Fatalf("recent observations: %v", err)
 	}
@@ -325,6 +326,7 @@ func TestHandleSaveRecordsActivityForExplicitSessionID(t *testing.T) {
 }
 
 func TestHandleSaveWithNilActivityStillSucceeds(t *testing.T) {
+	cdToNamedGitRepo(t, "engram-lite")
 	s := newMCPTestStore(t)
 	h := handleSave(s, MCPConfig{}, nil)
 
@@ -332,7 +334,7 @@ func TestHandleSaveWithNilActivityStillSucceeds(t *testing.T) {
 		"title":   "Nil activity save",
 		"content": "**What**: saved without activity tracker\n**Why**: regression test",
 		"type":    "bugfix",
-		"project": "engram",
+		"project": "engram-lite",
 	}}})
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
@@ -343,9 +345,10 @@ func TestHandleSaveWithNilActivityStillSucceeds(t *testing.T) {
 }
 
 func TestHandleSavePromptCaptureFailureIsNonFatal(t *testing.T) {
+	cdToNamedGitRepo(t, "engram-lite")
 	s := newMCPTestStore(t)
 	activity := NewSessionActivity(10 * time.Minute)
-	activity.RecordPrompt(defaultSessionID("engram"), "engram", "prompt capture should fail non-fatally")
+	activity.RecordPrompt(defaultSessionID("engram-lite"), "engram-lite", "prompt capture should fail non-fatally")
 	h := handleSave(s, MCPConfig{}, activity)
 
 	originalAddPromptIfMissing := addPromptIfMissing
@@ -358,7 +361,7 @@ func TestHandleSavePromptCaptureFailureIsNonFatal(t *testing.T) {
 		"title":   "Non fatal prompt capture",
 		"content": "**What**: saved despite prompt capture failure\n**Why**: regression test",
 		"type":    "bugfix",
-		"project": "engram",
+		"project": "engram-lite",
 	}}})
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
@@ -367,7 +370,7 @@ func TestHandleSavePromptCaptureFailureIsNonFatal(t *testing.T) {
 		t.Fatalf("unexpected save error: %s", callResultText(t, res))
 	}
 
-	obs, err := s.RecentObservations("engram", "project", 5)
+	obs, err := s.RecentObservations("engram-lite", "project", 5)
 	if err != nil {
 		t.Fatalf("recent observations: %v", err)
 	}
@@ -377,6 +380,7 @@ func TestHandleSavePromptCaptureFailureIsNonFatal(t *testing.T) {
 }
 
 func TestHandleSavePromptFeedsAutoCaptureContext(t *testing.T) {
+	cdToNamedGitRepo(t, "engram-lite")
 	s := newMCPTestStore(t)
 	activity := NewSessionActivity(10 * time.Minute)
 	savePrompt := handleSavePrompt(s, MCPConfig{}, activity)
@@ -384,7 +388,7 @@ func TestHandleSavePromptFeedsAutoCaptureContext(t *testing.T) {
 
 	promptRes, err := savePrompt(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
 		"content": "user asked for prompt-linked bugfix memory",
-		"project": "engram",
+		"project": "engram-lite",
 	}}})
 	if err != nil {
 		t.Fatalf("save prompt handler error: %v", err)
@@ -397,7 +401,7 @@ func TestHandleSavePromptFeedsAutoCaptureContext(t *testing.T) {
 		"title":   "Prompt linked bugfix",
 		"content": "**What**: linked prompt context\n**Why**: user asked",
 		"type":    "bugfix",
-		"project": "engram",
+		"project": "engram-lite",
 	}}})
 	if err != nil {
 		t.Fatalf("save handler error: %v", err)
@@ -406,7 +410,7 @@ func TestHandleSavePromptFeedsAutoCaptureContext(t *testing.T) {
 		t.Fatalf("unexpected save error: %s", callResultText(t, saveRes))
 	}
 
-	prompts, err := s.RecentPrompts("engram", 5)
+	prompts, err := s.RecentPrompts("engram-lite", 5)
 	if err != nil {
 		t.Fatalf("recent prompts: %v", err)
 	}
@@ -419,16 +423,17 @@ func TestHandleSavePromptFeedsAutoCaptureContext(t *testing.T) {
 }
 
 func TestHandleSaveCapturePromptFalseSkipsCurrentPrompt(t *testing.T) {
+	cdToNamedGitRepo(t, "engram-lite")
 	s := newMCPTestStore(t)
 	activity := NewSessionActivity(10 * time.Minute)
-	activity.RecordPrompt(defaultSessionID("engram"), "engram", "do not capture this prompt")
+	activity.RecordPrompt(defaultSessionID("engram-lite"), "engram-lite", "do not capture this prompt")
 	h := handleSave(s, MCPConfig{}, activity)
 
 	res, err := h(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
 		"title":          "SDD artifact",
 		"content":        "## Apply progress",
 		"type":           "architecture",
-		"project":        "engram",
+		"project":        "engram-lite",
 		"capture_prompt": false,
 	}}})
 	if err != nil {
@@ -438,7 +443,7 @@ func TestHandleSaveCapturePromptFalseSkipsCurrentPrompt(t *testing.T) {
 		t.Fatalf("unexpected save error: %s", callResultText(t, res))
 	}
 
-	prompts, err := s.RecentPrompts("engram", 5)
+	prompts, err := s.RecentPrompts("engram-lite", 5)
 	if err != nil {
 		t.Fatalf("recent prompts: %v", err)
 	}
@@ -448,6 +453,7 @@ func TestHandleSaveCapturePromptFalseSkipsCurrentPrompt(t *testing.T) {
 }
 
 func TestHandleSaveNoCurrentPromptStillSucceeds(t *testing.T) {
+	cdToNamedGitRepo(t, "engram-lite")
 	s := newMCPTestStore(t)
 	h := handleSave(s, MCPConfig{}, NewSessionActivity(10*time.Minute))
 
@@ -455,7 +461,7 @@ func TestHandleSaveNoCurrentPromptStillSucceeds(t *testing.T) {
 		"title":   "No prompt available",
 		"content": "**What**: saved without prompt context",
 		"type":    "discovery",
-		"project": "engram",
+		"project": "engram-lite",
 	}}})
 	if err != nil {
 		t.Fatalf("handler error: %v", err)
@@ -463,7 +469,7 @@ func TestHandleSaveNoCurrentPromptStillSucceeds(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("unexpected save error: %s", callResultText(t, res))
 	}
-	prompts, err := s.RecentPrompts("engram", 5)
+	prompts, err := s.RecentPrompts("engram-lite", 5)
 	if err != nil {
 		t.Fatalf("recent prompts: %v", err)
 	}
@@ -473,6 +479,7 @@ func TestHandleSaveNoCurrentPromptStillSucceeds(t *testing.T) {
 }
 
 func TestHandleSaveDoesNotSuggestWhenTopicKeyProvided(t *testing.T) {
+	cdToNamedGitRepo(t, "engram-lite")
 	s := newMCPTestStore(t)
 	h := handleSave(s, MCPConfig{}, NewSessionActivity(10*time.Minute))
 
@@ -480,7 +487,7 @@ func TestHandleSaveDoesNotSuggestWhenTopicKeyProvided(t *testing.T) {
 		"title":     "Auth architecture",
 		"content":   "Define boundaries for auth middleware",
 		"type":      "architecture",
-		"project":   "engram",
+		"project":   "engram-lite",
 		"topic_key": "architecture/auth-model",
 	}}}
 
@@ -565,12 +572,13 @@ func TestHandleCapturePassiveWithNoLearningSection(t *testing.T) {
 }
 
 func TestHandleCapturePassiveDefaultsSourceAndSession(t *testing.T) {
+	cdToNamedGitRepo(t, "engram-lite")
 	s := newMCPTestStore(t)
 	h := handleCapturePassive(s, MCPConfig{}, NewSessionActivity(10*time.Minute))
 
 	req := mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
 		"content": "## Key Learnings:\n\n1. This learning is long enough to be persisted with default source",
-		"project": "engram",
+		"project": "engram-lite",
 	}}}
 
 	res, err := h(context.Background(), req)
@@ -581,7 +589,7 @@ func TestHandleCapturePassiveDefaultsSourceAndSession(t *testing.T) {
 		t.Fatalf("unexpected tool error: %s", callResultText(t, res))
 	}
 
-	obs, err := s.RecentObservations("engram", "project", 5)
+	obs, err := s.RecentObservations("engram-lite", "project", 5)
 	if err != nil {
 		t.Fatalf("recent observations: %v", err)
 	}
@@ -651,6 +659,7 @@ func TestHelperArgsAndTruncate(t *testing.T) {
 }
 
 func TestHandleSearchAndCRUDHandlers(t *testing.T) {
+	cdToNamedGitRepo(t, "engram")
 	s := newMCPTestStore(t)
 	if err := s.CreateSession("s-mcp", "engram", "/tmp/engram"); err != nil {
 		t.Fatalf("create session: %v", err)
@@ -729,6 +738,7 @@ func TestHandleSearchAndCRUDHandlers(t *testing.T) {
 }
 
 func TestHandlePromptContextStatsTimelineAndSessionHandlers(t *testing.T) {
+	cdToNamedGitRepo(t, "engram")
 	s := newMCPTestStore(t)
 	if err := s.CreateSession("s-flow", "engram", "/tmp/engram"); err != nil {
 		t.Fatalf("create session: %v", err)
@@ -1158,6 +1168,7 @@ func TestHandleUpdateAcceptsAllOptionalFields(t *testing.T) {
 }
 
 func TestHandleContextWithSessionOnlyUsesNoneProjects(t *testing.T) {
+	cdToNamedGitRepo(t, "engram")
 	s := newMCPTestStore(t)
 	if err := s.CreateSession("s-context-none", "engram", "/tmp/engram"); err != nil {
 		t.Fatalf("create session: %v", err)
@@ -1628,6 +1639,7 @@ func TestHandleSave_TopicKeyRevision_ReturnsCandidates(t *testing.T) {
 // D.4 — mem_search result annotations for relations.
 // REQ-002 | Design §5
 func TestHandleSearch_SupersededAnnotation(t *testing.T) {
+	cdToNamedGitRepo(t, "engram")
 	s := newMCPTestStore(t)
 	if err := s.CreateSession("s-search-annot", "engram", "/tmp"); err != nil {
 		t.Fatalf("create session: %v", err)
@@ -1712,6 +1724,7 @@ func TestHandleSearch_SupersededAnnotation(t *testing.T) {
 }
 
 func TestHandleSearch_PendingAsContested(t *testing.T) {
+	cdToNamedGitRepo(t, "engram")
 	s := newMCPTestStore(t)
 	if err := s.CreateSession("s-contested", "engram", "/tmp"); err != nil {
 		t.Fatalf("create session: %v", err)
@@ -1777,6 +1790,7 @@ func TestHandleSearch_PendingAsContested(t *testing.T) {
 }
 
 func TestHandleSearch_NoRelationsUnchanged(t *testing.T) {
+	cdToNamedGitRepo(t, "engram")
 	s := newMCPTestStore(t)
 	if err := s.CreateSession("s-no-rel", "engram", "/tmp"); err != nil {
 		t.Fatalf("create session: %v", err)
@@ -1967,6 +1981,7 @@ func TestNewServerWithToolsIndividualSelection(t *testing.T) {
 }
 
 func TestMemDoctorRegisteredAndReturnsEnvelope(t *testing.T) {
+	cdToNamedGitRepo(t, "engram")
 	s := newMCPTestStore(t)
 	if err := s.CreateSession("manual-save-engram", "engram", "/work/engram"); err != nil {
 		t.Fatalf("CreateSession: %v", err)
@@ -2015,10 +2030,11 @@ func TestMemDoctorOmittedProjectUsesAutoDetectedScope(t *testing.T) {
 }
 
 func TestMemDoctorUnknownProjectReturnsStructuredError(t *testing.T) {
+	// CWD matches override so isolation passes; unknown_project fires because project
+	// is not yet in the store.
+	cdToNamedGitRepo(t, "missing")
+
 	s := newMCPTestStore(t)
-	if err := s.CreateSession("manual-save-engram", "engram", "/work/engram"); err != nil {
-		t.Fatalf("CreateSession: %v", err)
-	}
 	res, err := handleDoctor(s, MCPConfig{})(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{"project": "missing"}}})
 	if err != nil {
 		t.Fatalf("handleDoctor: %v", err)
@@ -2760,6 +2776,7 @@ func TestHandleSave_ExplicitProjectWinsOverAutoDetect(t *testing.T) {
 }
 
 func TestSearchResponseIncludesNudgeAfterInactivity(t *testing.T) {
+	cdToNamedGitRepo(t, "myproject")
 	s := newMCPTestStore(t)
 
 	// Seed a memory to search for
@@ -3641,7 +3658,7 @@ func TestMemSave_RepoConfigBeatsGitRemoteFallback(t *testing.T) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git remote add: %v\n%s", err, out)
 	}
-	configDir := filepath.Join(dir, ".engram")
+	configDir := filepath.Join(dir, ".engram-lite")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatalf("create config dir: %v", err)
 	}
@@ -4643,8 +4660,7 @@ func TestMemSearch_NoProjectAutoDetects(t *testing.T) {
 
 // TestMemSearch_ExplicitKnownProject: valid override uses ProjectExists path (REQ-311)
 func TestMemSearch_ExplicitKnownProject(t *testing.T) {
-	dir := t.TempDir()
-	t.Chdir(dir)
+	cdToNamedGitRepo(t, "known-project")
 
 	s := newMCPTestStore(t)
 	// Seed an observation under "known-project".
@@ -4678,8 +4694,9 @@ func TestMemSearch_ExplicitKnownProject(t *testing.T) {
 
 // TestMemSearch_UnknownProjectError: unknown override returns structured error (REQ-311)
 func TestMemSearch_UnknownProjectError(t *testing.T) {
-	dir := t.TempDir()
-	t.Chdir(dir)
+	// CWD matches override so isolation passes; unknown_project fires because project
+	// is not yet in the store.
+	cdToNamedGitRepo(t, "does-not-exist-project")
 
 	s := newMCPTestStore(t)
 	h := handleSearch(s, MCPConfig{}, NewSessionActivity(10*time.Minute))
@@ -4848,6 +4865,20 @@ func TestMemCurrentProject_WarningCase3(t *testing.T) {
 
 // initTestGitRepo creates a git repo in dir, configures user, and optionally
 // adds a remote origin. Exported as helper for both project and mcp tests.
+// cdToNamedGitRepo creates a temp dir with the given name, initialises it as a
+// git repo, and changes the test's working directory to it. The auto-detected
+// project will equal name (via dir_basename detection).
+func cdToNamedGitRepo(t *testing.T, name string) {
+	t.Helper()
+	parent := t.TempDir()
+	dir := filepath.Join(parent, name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", dir, err)
+	}
+	initTestGitRepo(t, dir)
+	t.Chdir(dir)
+}
+
 func initTestGitRepo(t *testing.T, dir string) {
 	t.Helper()
 	run := func(args ...string) {
@@ -4896,7 +4927,7 @@ func TestResolveWriteProject_AutoDetects(t *testing.T) {
 func TestResolveWriteProject_UsesConfigFromRepoRootSubdir(t *testing.T) {
 	root := t.TempDir()
 	initTestGitRepo(t, root)
-	configDir := filepath.Join(root, ".engram")
+	configDir := filepath.Join(root, ".engram-lite")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -4920,7 +4951,7 @@ func TestResolveWriteProject_UsesConfigFromRepoRootSubdir(t *testing.T) {
 
 func TestResolveWriteProject_InvalidConfigFailsClearly(t *testing.T) {
 	dir := t.TempDir()
-	configDir := filepath.Join(dir, ".engram")
+	configDir := filepath.Join(dir, ".engram-lite")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -4937,7 +4968,7 @@ func TestResolveWriteProject_InvalidConfigFailsClearly(t *testing.T) {
 
 func TestHandleSaveInvalidConfigFailsClearly(t *testing.T) {
 	dir := t.TempDir()
-	configDir := filepath.Join(dir, ".engram")
+	configDir := filepath.Join(dir, ".engram-lite")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -4966,7 +4997,7 @@ func TestHandleSaveInvalidConfigFailsClearly(t *testing.T) {
 func TestHandleSaveAndPromptUseConfigProjectForWrites(t *testing.T) {
 	root := t.TempDir()
 	initTestGitRepo(t, root)
-	configDir := filepath.Join(root, ".engram")
+	configDir := filepath.Join(root, ".engram-lite")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -5037,44 +5068,126 @@ func TestResolveWriteProject_AmbiguousError(t *testing.T) {
 	}
 }
 
-// TestResolveReadProject_WithOverride: known project override succeeds
-func TestResolveReadProject_WithOverride(t *testing.T) {
-	s := newMCPTestStore(t)
-	// Register the project in the store.
-	if err := s.CreateSession("sess-x", "known-project", "/tmp"); err != nil {
-		t.Fatalf("create session: %v", err)
-	}
+// TestReadIsolation — agents may only read the current project's memories.
 
-	dir := t.TempDir()
+// Tracer bullet: passing a different project as override must be denied.
+func TestReadIsolation__should_reject__when_search_override_names_different_project(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "current-project")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	initTestGitRepo(t, dir)
 	t.Chdir(dir)
 
-	res, err := resolveReadProject(s, "known-project")
-	if err != nil {
-		t.Fatalf("resolveReadProject: %v", err)
+	s := newMCPTestStore(t)
+	if err := s.CreateSession("sess-other", "other-project", "/other"); err != nil {
+		t.Fatal(err)
 	}
-	if res.Project != "known-project" {
-		t.Errorf("Project = %q; want %q", res.Project, "known-project")
+
+	h := handleSearch(s, MCPConfig{}, NewSessionActivity(10*time.Minute))
+	res, err := h(context.Background(), mcppkg.CallToolRequest{
+		Params: mcppkg.CallToolParams{Arguments: map[string]any{
+			"query":   "anything",
+			"project": "other-project",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError {
+		t.Fatal("expected error for cross-project read, got success")
+	}
+	if text := callResultText(t, res); !strings.Contains(text, "cross-project") {
+		t.Errorf("error must explain cross-project denial, got: %q", text)
 	}
 }
 
-// TestResolveReadProject_UnknownOverride: unknown override returns error_code=="unknown_project" + available_projects
-func TestResolveReadProject_UnknownOverride(t *testing.T) {
+// Passing the current project name explicitly is a no-op and must succeed.
+func TestReadIsolation__should_allow__when_search_override_matches_current_project(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "my-project")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	initTestGitRepo(t, dir)
+	t.Chdir(dir)
+
 	s := newMCPTestStore(t)
-	// Store has a different project.
-	if err := s.CreateSession("sess-y", "real-project", "/tmp"); err != nil {
-		t.Fatalf("create session: %v", err)
+	if err := s.CreateSession("sess-mine", "my-project", dir); err != nil {
+		t.Fatal(err)
 	}
 
+	h := handleSearch(s, MCPConfig{}, NewSessionActivity(10*time.Minute))
+	res, err := h(context.Background(), mcppkg.CallToolRequest{
+		Params: mcppkg.CallToolParams{Arguments: map[string]any{
+			"query":   "anything",
+			"project": "my-project",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError {
+		t.Fatalf("expected success for same-project override, got error: %q", callResultText(t, res))
+	}
+}
+
+// ENGRAM_PROJECT sets the authoritative project; an override naming a different project must be denied.
+func TestReadIsolation__should_reject__when_process_default_conflicts_with_override(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 
-	_, err := resolveReadProject(s, "does-not-exist")
-	if err == nil {
-		t.Fatal("expected error for unknown project override")
+	s := newMCPTestStore(t)
+	h := handleSearch(s, MCPConfig{DefaultProject: "my-project"}, NewSessionActivity(10*time.Minute))
+	res, err := h(context.Background(), mcppkg.CallToolRequest{
+		Params: mcppkg.CallToolParams{Arguments: map[string]any{
+			"query":   "anything",
+			"project": "other-project",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	var upe *unknownProjectError
-	if !errors.As(err, &upe) {
-		t.Errorf("expected *unknownProjectError, got %T: %v", err, err)
+	if !res.IsError {
+		t.Fatal("expected error when override conflicts with ENGRAM_PROJECT default")
+	}
+	if text := callResultText(t, res); !strings.Contains(text, "cross-project") {
+		t.Errorf("error must explain cross-project denial, got: %q", text)
+	}
+}
+
+// When the current project has no data yet, the error must not leak other project names.
+func TestReadIsolation__should_not_expose_available_projects__when_project_not_found(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "new-project")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	initTestGitRepo(t, dir)
+	t.Chdir(dir)
+
+	s := newMCPTestStore(t)
+	// Seed an unrelated project — its name must not appear in any error response.
+	if err := s.CreateSession("sess-other", "secret-project", "/secret"); err != nil {
+		t.Fatal(err)
+	}
+
+	h := handleSearch(s, MCPConfig{}, NewSessionActivity(10*time.Minute))
+	res, err := h(context.Background(), mcppkg.CallToolRequest{
+		Params: mcppkg.CallToolParams{Arguments: map[string]any{
+			"query":   "anything",
+			"project": "new-project", // matches CWD but not yet in store
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError {
+		t.Fatal("expected unknown_project error for project not yet in store")
+	}
+	if text := callResultText(t, res); strings.Contains(text, "secret-project") {
+		t.Errorf("error must not expose other project names, got: %q", text)
 	}
 }
 
@@ -5189,8 +5302,9 @@ func TestHandleStats_AutoDetectsProject(t *testing.T) {
 // TestHandleStats_ExplicitUnknownProjectError: stats with unknown project override returns
 // structured error (REQ-311 applied to stats).
 func TestHandleStats_ExplicitUnknownProjectError(t *testing.T) {
-	dir := t.TempDir()
-	t.Chdir(dir)
+	// CWD matches override so isolation passes; unknown_project fires because project
+	// is not yet in the store.
+	cdToNamedGitRepo(t, "nonexistent-stats-project")
 
 	s := newMCPTestStore(t)
 	h := handleStats(s, MCPConfig{})
@@ -5259,8 +5373,9 @@ func TestHandleTimeline_AutoDetectsProject(t *testing.T) {
 // TestHandleTimeline_ExplicitUnknownProjectError: timeline with unknown project override
 // returns structured error (REQ-311).
 func TestHandleTimeline_ExplicitUnknownProjectError(t *testing.T) {
-	dir := t.TempDir()
-	t.Chdir(dir)
+	// CWD matches override so isolation passes; unknown_project fires because project
+	// is not yet in the store.
+	cdToNamedGitRepo(t, "does-not-exist-tl-project")
 
 	s := newMCPTestStore(t)
 	if err := s.CreateSession("sess-tl-unknown", "known-tl-project", "/tmp"); err != nil {
@@ -5451,25 +5566,33 @@ func TestWriteTool_AmbiguousErrorUsesCwdRepos_NotAllProjects(t *testing.T) {
 	}
 }
 
-// JW2: TestResolveReadProject_NormalizesOverride
-// resolveReadProject must normalize (lowercase+trim) the override before ProjectExists.
-func TestResolveReadProject_NormalizesOverride(t *testing.T) {
-	s := newMCPTestStore(t)
-	// Register a lowercase project name in the store.
-	if err := s.CreateSession("sess-norm", "myapp", "/tmp"); err != nil {
-		t.Fatalf("create session: %v", err)
+// Mixed-case and padded overrides must normalize before the same-project check.
+func TestReadIsolation__should_allow__when_override_matches_current_project_after_normalization(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "myapp")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
 	}
-
-	dir := t.TempDir()
+	initTestGitRepo(t, dir)
 	t.Chdir(dir)
 
-	// Pass mixed-case and padded override — must normalize to "myapp".
-	res, err := resolveReadProject(s, "  MyApp  ")
-	if err != nil {
-		t.Fatalf("resolveReadProject with mixed-case override: %v", err)
+	s := newMCPTestStore(t)
+	if err := s.CreateSession("sess-norm", "myapp", dir); err != nil {
+		t.Fatal(err)
 	}
-	if res.Project != "myapp" {
-		t.Errorf("Project = %q; want %q", res.Project, "myapp")
+
+	h := handleSearch(s, MCPConfig{}, NewSessionActivity(10*time.Minute))
+	res, err := h(context.Background(), mcppkg.CallToolRequest{
+		Params: mcppkg.CallToolParams{Arguments: map[string]any{
+			"query":   "anything",
+			"project": "  MyApp  ", // must normalize to "myapp" before comparison
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError {
+		t.Fatalf("expected success for normalized same-project override, got: %q", callResultText(t, res))
 	}
 }
 
@@ -5926,6 +6049,7 @@ func TestHandleSave_MCPConfig_OverridesDefaults(t *testing.T) {
 // REQ-004 | Design §7
 // Judged conflicts_with relation must surface as "conflicts: #<id> (<title>)".
 func TestMemSearch_AnnotatesConflictsWith_Judged(t *testing.T) {
+	cdToNamedGitRepo(t, "engram")
 	s := newMCPTestStore(t)
 	if err := s.CreateSession("s-f1a", "engram", "/tmp"); err != nil {
 		t.Fatalf("create session: %v", err)
@@ -6004,6 +6128,7 @@ func TestMemSearch_AnnotatesConflictsWith_Judged(t *testing.T) {
 // Pending conflicts_with relation must NOT produce a conflicts: annotation.
 // The existing "conflict: contested by #<sync_id> (pending)" annotation must stay byte-for-byte.
 func TestMemSearch_PendingConflict_KeepsPhase1Annotation(t *testing.T) {
+	cdToNamedGitRepo(t, "engram")
 	s := newMCPTestStore(t)
 	if err := s.CreateSession("s-f1b", "engram", "/tmp"); err != nil {
 		t.Fatalf("create session: %v", err)
@@ -6081,6 +6206,7 @@ func TestMemSearch_PendingConflict_KeepsPhase1Annotation(t *testing.T) {
 // REQ-005 | Design §7
 // judged supersedes/superseded_by annotations must include (#<id> <title>).
 func TestMemSearch_TitleEnrichment_SupersedesAndSupersededBy(t *testing.T) {
+	cdToNamedGitRepo(t, "engram")
 	s := newMCPTestStore(t)
 	if err := s.CreateSession("s-f1c", "engram", "/tmp"); err != nil {
 		t.Fatalf("create session: %v", err)
@@ -6164,6 +6290,7 @@ func TestMemSearch_TitleEnrichment_SupersedesAndSupersededBy(t *testing.T) {
 // REQ-005 (edge case) | Design §7, §8
 // When the related observation has been deleted, annotation must read "(deleted)".
 func TestMemSearch_TitleEnrichment_FallsBackToDeleted(t *testing.T) {
+	cdToNamedGitRepo(t, "engram")
 	s := newMCPTestStore(t)
 	if err := s.CreateSession("s-f1d", "engram", "/tmp"); err != nil {
 		t.Fatalf("create session: %v", err)
@@ -6248,6 +6375,7 @@ func TestMemSearch_TitleEnrichment_FallsBackToDeleted(t *testing.T) {
 // REQ-012 | Design §7
 // All 3 annotation types present on one obs → format matches contract byte-for-byte.
 func TestMemSearch_AllThreeTypes_FormatExact(t *testing.T) {
+	cdToNamedGitRepo(t, "engram")
 	s := newMCPTestStore(t)
 	if err := s.CreateSession("s-f1e", "engram", "/tmp"); err != nil {
 		t.Fatalf("create session: %v", err)
@@ -6453,14 +6581,16 @@ func TestProcessOverrideReadResolutionBeforeCWD(t *testing.T) {
 }
 
 func TestProcessOverrideReadKeepsPerCallValidation(t *testing.T) {
+	// When a per-call override names a project different from the process default,
+	// the call is rejected with invalidExplicitProjectError (cross-project denied).
 	s := newMCPTestStore(t)
 	_, err := resolveReadProjectWithProcessOverride(s, "missing-project", "trusted-project")
 	if err == nil {
-		t.Fatal("expected unknown project error for per-call override")
+		t.Fatal("expected cross-project error for per-call override that differs from process default")
 	}
-	var upe *unknownProjectError
-	if !errors.As(err, &upe) {
-		t.Fatalf("error = %T %v; want unknownProjectError", err, err)
+	var iep *invalidExplicitProjectError
+	if !errors.As(err, &iep) {
+		t.Fatalf("error = %T %v; want invalidExplicitProjectError", err, err)
 	}
 }
 

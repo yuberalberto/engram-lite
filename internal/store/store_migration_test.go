@@ -350,12 +350,13 @@ func TestMigrate_Idempotent(t *testing.T) {
 	}
 
 	// Assert new columns still present and queryable.
-	_, err = s2.db.Query(
+	rows, err := s2.db.Query(
 		`SELECT review_after, expires_at FROM observations LIMIT 1`,
 	)
 	if err != nil {
 		t.Fatalf("new columns missing after second migrate: %v (expected red)", err)
 	}
+	rows.Close()
 }
 
 // ─── A.5: TestMigrate_DoesNotTouchFTS5OrSyncMutations ───────────────────────

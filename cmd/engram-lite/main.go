@@ -277,14 +277,24 @@ func cmdInit() {
 	}
 
 	dataDir := filepath.Join(projectRoot, ".engram-lite")
+	configPath := filepath.Join(dataDir, "config.json")
 
-	// Check if already initialized
+	dirExists := false
 	if _, err := os.Stat(dataDir); err == nil {
+		dirExists = true
+	}
+
+	configExists := false
+	if _, err := os.Stat(configPath); err == nil {
+		configExists = true
+	}
+
+	if dirExists && configExists {
 		fmt.Printf("Already initialized: %s\n", dataDir)
 		return
 	}
 
-	// Create .engram-lite directory
+	// Create .engram-lite directory if needed
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		fatal(fmt.Errorf("engram-lite init: create directory: %w", err))
 	}
@@ -296,10 +306,9 @@ func cmdInit() {
 		projectName = result.Project
 	}
 
-	// Write config.json
+	// Write config.json (always — missing config is the reason we're here)
 	config := map[string]string{"project_name": projectName}
 	configBytes, _ := json.MarshalIndent(config, "", "  ")
-	configPath := filepath.Join(dataDir, "config.json")
 	if err := os.WriteFile(configPath, configBytes, 0o644); err != nil {
 		fatal(fmt.Errorf("engram-lite init: write config: %w", err))
 	}
