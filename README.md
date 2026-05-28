@@ -34,40 +34,15 @@ claude plugin add github:yuberalberto/engram-lite
 
 Restart Claude Code. No MCP config needed — the plugin handles everything.
 
-#### Cascade (Windsurf)
+#### Windsurf, VS Code, Cursor
 
-Edit the global MCP config file:
+`engram-lite init` (Step 2) automatically writes a workspace-level MCP config for each IDE it detects. If no IDE config directories are found, it prompts you to select which ones to configure.
 
-- **Windows:** `%USERPROFILE%\.codeium\windsurf\mcp_config.json`
-- **macOS/Linux:** `~/.codeium/windsurf/mcp_config.json`
+**Supported IDEs:** Windsurf, VS Code, Cursor
 
-```json
-{
-  "mcpServers": {
-    "engram-lite": {
-      "command": "engram-lite",
-      "args": ["mcp", "--tools=agent"]
-    }
-  }
-}
-```
+After running `init`, restart your IDE to pick up the new config.
 
-> `engram-lite` must be in your PATH. After `go install` it will be at `~/go/bin/engram-lite` (macOS/Linux) or `%USERPROFILE%\go\bin\engram-lite.exe` (Windows). If your agent can't find it, use the full path as the `command` value.
-
-#### Other agents
-
-Add the following to your agent's MCP configuration:
-
-```json
-{
-  "mcpServers": {
-    "engram-lite": {
-      "command": "engram-lite",
-      "args": ["mcp", "--tools=agent"]
-    }
-  }
-}
-```
+> `engram-lite` must be in your PATH. After `go install` it will be at `~/go/bin/engram-lite` (macOS/Linux) or `%USERPROFILE%\go\bin\engram-lite.exe` (Windows). If your agent can't find it, use the full path as the `command` value in the generated `mcp.json`.
 
 ---
 

@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/yuberalberto/engram-lite/internal/diagnostic"
+	"github.com/yuberalberto/engram-lite/internal/ide"
 	"github.com/yuberalberto/engram-lite/internal/mcp"
 	"github.com/yuberalberto/engram-lite/internal/project"
 	"github.com/yuberalberto/engram-lite/internal/server"
@@ -275,85 +276,118 @@ func cmdInit() {
 	if err != nil {
 		fatal(fmt.Errorf("engram-lite init: %w", err))
 	}
+	if err := runInit(projectRoot, &terminalPrompter{}); err != nil {
+		fatal(err)
+	}
+}
 
-	dataDir := filepath.Join(projectRoot, ".engram-lite")
+type terminalPrompter struct{}
+
+func (p *terminalPrompter) SelectIDEs(available []string) ([]string, error) {
+	fmt.Println("No IDE config directories detected. Select which IDEs to configure:")
+	for i, name := range available {
+		fmt.Printf("  %d) %s\n", i+1, name)
+	}
+	fmt.Print("  0) Skip\nEnter numbers separated by spaces (e.g. 1 3): ")
+	scanner := bufio.NewScanner(os.Stdin)
+	if !scanner.Scan() {
+		return nil, nil
+	}
+	input := strings.TrimSpace(scanner.Text())
+	if input == "" || input == "0" {
+		return nil, nil
+	}
+	var selected []string
+	for _, token := range strings.Fields(input) {
+		n, err := strconv.Atoi(token)
+		if err != nil || n < 1 || n > len(available) {
+			continue
+		}
+		selected = append(selected, available[n-1])
+	}
+	return selected, nil
+}
+
+func runInit(workspaceRoot string, prompter ide.Prompter) error {
+	dataDir := filepath.Join(workspaceRoot, ".engram-lite")
 	configPath := filepath.Join(dataDir, "config.json")
 
-	dirExists := false
+	alreadyInit := false
 	if _, err := os.Stat(dataDir); err == nil {
-		dirExists = true
+		if _, err := os.Stat(configPath); err == nil {
+			alreadyInit = true
+		}
 	}
 
-	configExists := false
-	if _, err := os.Stat(configPath); err == nil {
-		configExists = true
-	}
+	if !alreadyInit {
+		if err := os.MkdirAll(dataDir, 0o755); err != nil {
+			return fmt.Errorf("engram-lite init: create directory: %w", err)
+		}
 
-	if dirExists && configExists {
-		fmt.Printf("Already initialized: %s\n", dataDir)
-		return
-	}
+		projectName := filepath.Base(workspaceRoot)
+		result := project.DetectProjectFull(workspaceRoot)
+		if result.Project != "" {
+			projectName = result.Project
+		}
 
-	// Create .engram-lite directory if needed
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
-		fatal(fmt.Errorf("engram-lite init: create directory: %w", err))
-	}
+		config := map[string]string{"project_name": projectName}
+		configBytes, _ := json.MarshalIndent(config, "", "  ")
+		if err := os.WriteFile(configPath, configBytes, 0o644); err != nil {
+			return fmt.Errorf("engram-lite init: write config: %w", err)
+		}
 
-	// Detect project name
-	projectName := filepath.Base(projectRoot)
-	result := project.DetectProjectFull(projectRoot)
-	if result.Project != "" {
-		projectName = result.Project
-	}
+		cfg := store.FallbackConfig(dataDir)
+		db, err := store.New(cfg)
+		if err != nil {
+			return fmt.Errorf("engram-lite init: create database: %w", err)
+		}
+		db.Close()
 
-	// Write config.json (always — missing config is the reason we're here)
-	config := map[string]string{"project_name": projectName}
-	configBytes, _ := json.MarshalIndent(config, "", "  ")
-	if err := os.WriteFile(configPath, configBytes, 0o644); err != nil {
-		fatal(fmt.Errorf("engram-lite init: write config: %w", err))
-	}
-
-	// Create the database (runs migrations, ready to use)
-	cfg := store.FallbackConfig(dataDir)
-	db, err := store.New(cfg)
-	if err != nil {
-		fatal(fmt.Errorf("engram-lite init: create database: %w", err))
-	}
-	db.Close()
-
-	// Add DB files to .gitignore (config.json is safe to commit)
-	gitignorePath := filepath.Join(projectRoot, ".gitignore")
-	gitignoreEntry := ".engram-lite/*.db\n.engram-lite/*.db-wal\n.engram-lite/*.db-shm"
-	addedToGitignore := false
-
-	if content, err := os.ReadFile(gitignorePath); err == nil {
-		if !strings.Contains(string(content), ".engram-lite/*.db") {
-			f, err := os.OpenFile(gitignorePath, os.O_APPEND|os.O_WRONLY, 0o644)
-			if err == nil {
-				fmt.Fprintf(f, "\n# engram-lite database (config.json is safe to commit)\n%s\n", gitignoreEntry)
-				f.Close()
+		gitignorePath := filepath.Join(workspaceRoot, ".gitignore")
+		gitignoreEntry := ".engram-lite/*.db\n.engram-lite/*.db-wal\n.engram-lite/*.db-shm"
+		addedToGitignore := false
+		if content, err := os.ReadFile(gitignorePath); err == nil {
+			if !strings.Contains(string(content), ".engram-lite/*.db") {
+				f, err := os.OpenFile(gitignorePath, os.O_APPEND|os.O_WRONLY, 0o644)
+				if err == nil {
+					fmt.Fprintf(f, "\n# engram-lite database (config.json is safe to commit)\n%s\n", gitignoreEntry)
+					f.Close()
+					addedToGitignore = true
+				}
+			} else {
 				addedToGitignore = true
 			}
 		} else {
-			addedToGitignore = true // already there
+			if err := os.WriteFile(gitignorePath, []byte(fmt.Sprintf("# engram-lite database (config.json is safe to commit)\n%s\n", gitignoreEntry)), 0o644); err == nil {
+				addedToGitignore = true
+			}
 		}
-	} else {
-		// .gitignore doesn't exist, create it
-		if err := os.WriteFile(gitignorePath, []byte(fmt.Sprintf("# engram-lite database (config.json is safe to commit)\n%s\n", gitignoreEntry)), 0o644); err == nil {
-			addedToGitignore = true
+
+		fmt.Printf("Initialized engram-lite in %s\n", dataDir)
+		fmt.Printf("  Project:  %s\n", projectName)
+		fmt.Printf("  Database: %s\n", filepath.Join(dataDir, "engram.db"))
+		fmt.Printf("  Config:   %s\n", configPath)
+		fmt.Printf("  Backup:   ~/.engram-lite/backups/%s/\n", projectName)
+		if addedToGitignore {
+			fmt.Printf("  Updated .gitignore (DB excluded, config.json committed)\n")
 		}
 	}
 
-	fmt.Printf("Initialized engram-lite in %s\n", dataDir)
-	fmt.Printf("  Project:  %s\n", projectName)
-	fmt.Printf("  Database: %s\n", filepath.Join(dataDir, "engram.db"))
-	fmt.Printf("  Config:   %s\n", configPath)
-	fmt.Printf("  Backup:   ~/.engram-lite/backups/%s/\n", projectName)
-	if addedToGitignore {
-		fmt.Printf("  Updated .gitignore (DB excluded, config.json committed)\n")
-	} else {
-		fmt.Printf("  Note: .gitignore already configured\n")
+	results := ide.WriteWorkspaceConfigs(workspaceRoot, dataDir, prompter)
+	for _, r := range results {
+		switch r.Kind {
+		case ide.ResultCreated:
+			fmt.Printf("  IDE MCP config created: %s\n", r.IDE)
+		case ide.ResultMerged:
+			fmt.Printf("  IDE MCP config updated: %s (engram-lite entry added)\n", r.IDE)
+		case ide.ResultSkipped:
+			fmt.Printf("  IDE MCP config unchanged: %s (engram-lite already configured)\n", r.IDE)
+		case ide.ResultError:
+			fmt.Printf("  IDE MCP config error: %s: %v\n", r.IDE, r.Err)
+		}
 	}
+
+	return nil
 }
 
 func cmdServe(cfg store.Config) {
@@ -414,6 +448,18 @@ func cmdMCP(cfg store.Config) {
 				fatal(fmt.Errorf("--project requires a value"))
 			}
 			i++
+		}
+	}
+
+	// If no explicit project override, read project_name from config.json in the
+	// data dir. This lets ENGRAM_DATA_DIR alone fully configure the MCP server
+	// when the process CWD doesn't point at the project (e.g. IDE install dirs).
+	if projectOverride == "" {
+		if data, err := os.ReadFile(filepath.Join(cfg.DataDir, "config.json")); err == nil {
+			var cfgFile map[string]string
+			if json.Unmarshal(data, &cfgFile) == nil && cfgFile["project_name"] != "" {
+				projectOverride = cfgFile["project_name"]
+			}
 		}
 	}
 

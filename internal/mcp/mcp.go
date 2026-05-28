@@ -867,6 +867,7 @@ ERROR: Returns IsError=true if IDs are unknown, relation is invalid, or cross-pr
 			handleCompare(s, activity),
 		)
 	}
+
 }
 
 // ─── Tool Handlers ───────────────────────────────────────────────────────────
