@@ -10,6 +10,7 @@ import (
 	"time"
 
 	projectpkg "github.com/yuberalberto/engram-lite/internal/project"
+	"github.com/yuberalberto/engram-lite/internal/store"
 )
 
 const sourceWorkspaceBinding = "workspace_binding"
@@ -23,6 +24,7 @@ type SessionActivity struct {
 	nudgeAfter      time.Duration
 	now             func() time.Time // injectable for testing
 	workspaceResult *workspaceBinding
+	workspaceStore  *store.Store // non-nil when mem_use_workspace has been called
 }
 
 type workspaceBinding struct {
@@ -89,6 +91,9 @@ func (a *SessionActivity) SetWorkspace(project, path string) {
 // WorkspaceProject returns the session-scoped workspace binding set by
 // mem_use_workspace, or (zero, false) if none has been set.
 func (a *SessionActivity) WorkspaceProject() (projectpkg.DetectionResult, bool) {
+	if a == nil {
+		return projectpkg.DetectionResult{}, false
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.workspaceResult == nil {
@@ -99,6 +104,45 @@ func (a *SessionActivity) WorkspaceProject() (projectpkg.DetectionResult, bool) 
 		Source:  sourceWorkspaceBinding,
 		Path:    a.workspaceResult.path,
 	}, true
+}
+
+// SetWorkspaceStore replaces the active workspace store. Closes the previous one if present.
+// Called by handleUseWorkspace after successfully opening the workspace DB.
+func (a *SessionActivity) SetWorkspaceStore(s *store.Store) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.workspaceStore != nil {
+		_ = a.workspaceStore.Close()
+	}
+	a.workspaceStore = s
+}
+
+// EffectiveStore returns the workspace store if one has been bound via mem_use_workspace,
+// otherwise returns defaultStore. Handlers call this once per invocation to route
+// all DB operations to the correct database.
+func (a *SessionActivity) EffectiveStore(defaultStore *store.Store) *store.Store {
+	if a == nil {
+		return defaultStore
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.workspaceStore != nil {
+		return a.workspaceStore
+	}
+	return defaultStore
+}
+
+// CloseWorkspaceStore closes the workspace store if one is open.
+func (a *SessionActivity) CloseWorkspaceStore() {
+	if a == nil {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.workspaceStore != nil {
+		_ = a.workspaceStore.Close()
+		a.workspaceStore = nil
+	}
 }
 
 // RecordToolCall increments the tool call counter for a session.

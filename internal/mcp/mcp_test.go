@@ -695,7 +695,7 @@ func TestHandleSearchAndCRUDHandlers(t *testing.T) {
 		t.Fatalf("expected non-empty search result")
 	}
 
-	update := handleUpdate(s)
+	update := handleUpdate(s, nil)
 	updateReq := mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
 		"id":    float64(obsID),
 		"title": "Fix parser panic",
@@ -708,7 +708,7 @@ func TestHandleSearchAndCRUDHandlers(t *testing.T) {
 		t.Fatalf("unexpected update error: %s", callResultText(t, updateRes))
 	}
 
-	getObs := handleGetObservation(s, MCPConfig{})
+	getObs := handleGetObservation(s, MCPConfig{}, nil)
 	getReq := mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
 		"id": float64(obsID),
 	}}}
@@ -720,7 +720,7 @@ func TestHandleSearchAndCRUDHandlers(t *testing.T) {
 		t.Fatalf("unexpected get error: %s", callResultText(t, getRes))
 	}
 
-	deleteHandler := handleDelete(s)
+	deleteHandler := handleDelete(s, nil)
 	delReq := mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
 		"id":          float64(obsID),
 		"hard_delete": true,
@@ -869,7 +869,7 @@ func TestMCPHandlersErrorBranches(t *testing.T) {
 		t.Fatalf("expected no memories response")
 	}
 
-	update := handleUpdate(s)
+	update := handleUpdate(s, nil)
 	missingIDRes, err := update(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{}}})
 	if err != nil {
 		t.Fatalf("update missing id error: %v", err)
@@ -887,7 +887,7 @@ func TestMCPHandlersErrorBranches(t *testing.T) {
 		t.Fatalf("expected update no fields to return tool error")
 	}
 
-	deleteHandler := handleDelete(s)
+	deleteHandler := handleDelete(s, nil)
 	delMissingIDRes, err := deleteHandler(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{}}})
 	if err != nil {
 		t.Fatalf("delete missing id error: %v", err)
@@ -905,7 +905,7 @@ func TestMCPHandlersErrorBranches(t *testing.T) {
 		t.Fatalf("expected timeline missing id to return tool error")
 	}
 
-	getObs := handleGetObservation(s, MCPConfig{})
+	getObs := handleGetObservation(s, MCPConfig{}, nil)
 	getMissingIDRes, err := getObs(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{}}})
 	if err != nil {
 		t.Fatalf("get observation missing id error: %v", err)
@@ -953,7 +953,7 @@ func TestMCPHandlersReturnErrorsWhenStoreClosed(t *testing.T) {
 		t.Fatalf("expected search to return tool error when store is closed")
 	}
 
-	updateRes, err := handleUpdate(s)(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{"id": 1.0, "title": "new"}}})
+	updateRes, err := handleUpdate(s, nil)(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{"id": 1.0, "title": "new"}}})
 	if err != nil {
 		t.Fatalf("closed store update call: %v", err)
 	}
@@ -961,7 +961,7 @@ func TestMCPHandlersReturnErrorsWhenStoreClosed(t *testing.T) {
 		t.Fatalf("expected update to return tool error when store is closed")
 	}
 
-	deleteRes, err := handleDelete(s)(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{"id": 1.0}}})
+	deleteRes, err := handleDelete(s, nil)(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{"id": 1.0}}})
 	if err != nil {
 		t.Fatalf("closed store delete call: %v", err)
 	}
@@ -1001,7 +1001,7 @@ func TestMCPHandlersReturnErrorsWhenStoreClosed(t *testing.T) {
 		t.Fatalf("expected timeline to return tool error when store is closed")
 	}
 
-	getObsRes, err := handleGetObservation(s, MCPConfig{})(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{"id": 1.0}}})
+	getObsRes, err := handleGetObservation(s, MCPConfig{}, nil)(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{"id": 1.0}}})
 	if err != nil {
 		t.Fatalf("closed store get observation call: %v", err)
 	}
@@ -1150,7 +1150,7 @@ func TestHandleUpdateAcceptsAllOptionalFields(t *testing.T) {
 		t.Fatalf("add observation: %v", err)
 	}
 
-	res, err := handleUpdate(s)(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
+	res, err := handleUpdate(s, nil)(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
 		"id":        float64(id),
 		"title":     "Updated",
 		"content":   "Updated content",
@@ -1263,7 +1263,7 @@ func TestHandleGetObservationIncludesTopicAndToolMetadata(t *testing.T) {
 		t.Fatalf("add observation: %v", err)
 	}
 
-	res, err := handleGetObservation(s, MCPConfig{})(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
+	res, err := handleGetObservation(s, MCPConfig{}, nil)(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
 		"id": float64(id),
 	}}})
 	if err != nil {
@@ -2604,7 +2604,7 @@ func TestHandleMergeProjects(t *testing.T) {
 		t.Fatalf("add observation engram-memory: %v", err)
 	}
 
-	h := handleMergeProjects(s)
+	h := handleMergeProjects(s, nil)
 
 	req := mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
 		"from": "engram-memory, ENGRAM", // comma-separated, with spaces and uppercase
@@ -2640,7 +2640,7 @@ func TestHandleMergeProjects(t *testing.T) {
 
 func TestHandleMergeProjectsRequiresFromAndTo(t *testing.T) {
 	s := newMCPTestStore(t)
-	h := handleMergeProjects(s)
+	h := handleMergeProjects(s, nil)
 
 	// Missing "from"
 	res, err := h(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
@@ -4753,7 +4753,7 @@ func TestAllTools_ReadResponseEnvelope(t *testing.T) {
 	}
 
 	// mem_get_observation envelope
-	hGet := handleGetObservation(s, MCPConfig{})
+	hGet := handleGetObservation(s, MCPConfig{}, nil)
 	resGet, err := hGet(context.Background(), mcppkg.CallToolRequest{
 		Params: mcppkg.CallToolParams{Arguments: map[string]any{
 			"id": float64(obsID),
@@ -4779,7 +4779,7 @@ func TestMemCurrentProject_NormalResult(t *testing.T) {
 	t.Chdir(dir)
 
 	s := newMCPTestStore(t)
-	h := handleCurrentProject(s, MCPConfig{})
+	h := handleCurrentProject(s, MCPConfig{}, nil)
 
 	res, err := h(context.Background(), mcppkg.CallToolRequest{})
 	if err != nil {
@@ -4814,7 +4814,7 @@ func TestMemCurrentProject_AmbiguousNoError(t *testing.T) {
 	t.Chdir(parent)
 
 	s := newMCPTestStore(t)
-	h := handleCurrentProject(s, MCPConfig{})
+	h := handleCurrentProject(s, MCPConfig{}, nil)
 
 	res, err := h(context.Background(), mcppkg.CallToolRequest{})
 	if err != nil {
@@ -4846,7 +4846,7 @@ func TestMemCurrentProject_WarningCase3(t *testing.T) {
 	t.Chdir(parent)
 
 	s := newMCPTestStore(t)
-	h := handleCurrentProject(s, MCPConfig{})
+	h := handleCurrentProject(s, MCPConfig{}, nil)
 
 	res, err := h(context.Background(), mcppkg.CallToolRequest{})
 	if err != nil || res.IsError {
@@ -5251,7 +5251,7 @@ func TestHandleGetObservation_ResponseEnvelopeIncludesProject(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := handleGetObservation(s, MCPConfig{})
+	h := handleGetObservation(s, MCPConfig{}, nil)
 	res, err := h(context.Background(), mcppkg.CallToolRequest{
 		Params: mcppkg.CallToolParams{Arguments: map[string]any{
 			"id": float64(id),
@@ -5776,7 +5776,7 @@ func TestHandleGetObservation_DegradedPathNoEnvelope(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := handleGetObservation(s, MCPConfig{})
+	h := handleGetObservation(s, MCPConfig{}, nil)
 	res, err := h(context.Background(), mcppkg.CallToolRequest{
 		Params: mcppkg.CallToolParams{Arguments: map[string]any{
 			"id": float64(obsID),
@@ -5824,7 +5824,7 @@ func TestHandleGetObservation_EnvelopePresent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	h := handleGetObservation(s, MCPConfig{})
+	h := handleGetObservation(s, MCPConfig{}, nil)
 	res, err := h(context.Background(), mcppkg.CallToolRequest{
 		Params: mcppkg.CallToolParams{Arguments: map[string]any{
 			"id": float64(obsID),
@@ -5918,7 +5918,7 @@ func TestAllTools_ReadResponseEnvelope_WithAssertions(t *testing.T) {
 	assertEnvelope(t, "mem_search", resSearch)
 
 	// mem_get_observation envelope
-	hGet := handleGetObservation(s, MCPConfig{})
+	hGet := handleGetObservation(s, MCPConfig{}, nil)
 	resGet, err := hGet(context.Background(), mcppkg.CallToolRequest{
 		Params: mcppkg.CallToolParams{Arguments: map[string]any{
 			"id": float64(obsID),
@@ -6542,7 +6542,7 @@ func TestProcessOverrideCurrentProjectBeatsAmbiguousCWD(t *testing.T) {
 	t.Chdir(parent)
 
 	s := newMCPTestStore(t)
-	h := handleCurrentProject(s, MCPConfig{DefaultProject: "Trusted Project"})
+	h := handleCurrentProject(s, MCPConfig{DefaultProject: "Trusted Project"}, nil)
 
 	res, err := h(context.Background(), mcppkg.CallToolRequest{})
 	if err != nil || res.IsError {
@@ -6712,10 +6712,10 @@ func TestUseWorkspace__should_route_writes_to_workspace__after_binding(t *testin
 	cdToNamedGitRepo(t, "cwd-project")
 	wsDir := workspaceWithConfig(t, "cascade-project")
 
-	s := newMCPTestStore(t)
+	globalStore := newMCPTestStore(t)
 	activity := NewSessionActivity(10 * time.Minute)
 
-	// Bind session to workspace.
+	// Bind session to workspace — this opens the workspace store inside activity.
 	useWs := handleUseWorkspace(activity)
 	if res, err := useWs(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
 		"workspace_path": wsDir,
@@ -6723,8 +6723,8 @@ func TestUseWorkspace__should_route_writes_to_workspace__after_binding(t *testin
 		t.Fatalf("use_workspace failed: err=%v isError=%v text=%q", err, res.IsError, callResultText(t, res))
 	}
 
-	// mem_save with no explicit project — should route to workspace project.
-	save := handleSave(s, MCPConfig{}, activity)
+	// mem_save with no explicit project — should route to workspace DB, not globalStore.
+	save := handleSave(globalStore, MCPConfig{}, activity)
 	res, err := save(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
 		"title":   "Cascade memory",
 		"content": "Written from Cascade workspace",
@@ -6734,12 +6734,29 @@ func TestUseWorkspace__should_route_writes_to_workspace__after_binding(t *testin
 		t.Fatalf("save error: err=%v isError=%v text=%q", err, res.IsError, callResultText(t, res))
 	}
 
-	results, err := s.Search("Cascade memory", store.SearchOptions{Project: "cascade-project", Limit: 5})
+	// The observation must be in the workspace DB, not in the global store.
+	wsCfg := store.FallbackConfig(filepath.Join(wsDir, ".engram-lite"))
+	wsStore, err := store.New(wsCfg)
 	if err != nil {
-		t.Fatalf("search: %v", err)
+		t.Fatalf("open workspace store: %v", err)
 	}
-	if len(results) != 1 {
-		t.Fatalf("expected 1 result in cascade-project, got %d", len(results))
+	t.Cleanup(func() { _ = wsStore.Close() })
+
+	wsResults, err := wsStore.Search("Cascade memory", store.SearchOptions{Project: "cascade-project", Limit: 5})
+	if err != nil {
+		t.Fatalf("workspace search: %v", err)
+	}
+	if len(wsResults) != 1 {
+		t.Fatalf("expected 1 result in workspace DB, got %d", len(wsResults))
+	}
+
+	// Verify global store was NOT written to.
+	globalResults, err := globalStore.Search("Cascade memory", store.SearchOptions{Limit: 5})
+	if err != nil {
+		t.Fatalf("global search: %v", err)
+	}
+	if len(globalResults) != 0 {
+		t.Fatalf("expected 0 results in global store, got %d (memory leaked to wrong DB)", len(globalResults))
 	}
 }
 
@@ -6800,7 +6817,7 @@ func TestWriteEnforcement__read_tools__should_succeed__when_no_workspace_context
 			return res
 		}},
 		{"mem_get_observation", func() *mcppkg.CallToolResult {
-			h := handleGetObservation(s, cfg)
+			h := handleGetObservation(s, cfg, nil)
 			res, _ := h(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
 				"id": float64(9999),
 			}}})

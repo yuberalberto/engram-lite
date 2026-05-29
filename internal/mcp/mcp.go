@@ -399,7 +399,7 @@ Examples:
 					mcp.Description("New topic key (normalized internally)"),
 				),
 			),
-			queuedWriteHandler(writeQueue, handleUpdate(s)),
+			queuedWriteHandler(writeQueue, handleUpdate(s, activity)),
 		)
 	}
 
@@ -447,7 +447,7 @@ Examples:
 					mcp.Description("If true, permanently deletes the observation"),
 				),
 			),
-			queuedWriteHandler(writeQueue, handleDelete(s)),
+			queuedWriteHandler(writeQueue, handleDelete(s, activity)),
 		)
 	}
 
@@ -567,7 +567,7 @@ Examples:
 					mcp.Description("The observation ID to retrieve"),
 				),
 			),
-			handleGetObservation(s, cfg),
+			handleGetObservation(s, cfg, activity),
 		)
 	}
 
@@ -722,7 +722,7 @@ Duplicates are automatically detected and skipped — safe to call multiple time
 					mcp.Description("The canonical project name to merge INTO (e.g. 'engram')"),
 				),
 			),
-			queuedWriteHandler(writeQueue, handleMergeProjects(s)),
+			queuedWriteHandler(writeQueue, handleMergeProjects(s, activity)),
 		)
 	}
 
@@ -737,7 +737,7 @@ Duplicates are automatically detected and skipped — safe to call multiple time
 				mcp.WithIdempotentHintAnnotation(true),
 				mcp.WithOpenWorldHintAnnotation(false),
 			),
-			handleCurrentProject(s, cfg),
+			handleCurrentProject(s, cfg, activity),
 		)
 	}
 
@@ -896,10 +896,13 @@ ERROR: Returns IsError=true if IDs are unknown, relation is invalid, or cross-pr
 // handleCurrentProject implements mem_current_project. It NEVER returns an error
 // even on ambiguous cwd — it always returns a success result with whatever
 // detection info is available (REQ-313).
-func handleCurrentProject(s *store.Store, cfg MCPConfig) server.ToolHandlerFunc {
+func handleCurrentProject(s *store.Store, cfg MCPConfig, activity *SessionActivity) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		cwd, _ := os.Getwd()
 		res := projectpkg.DetectProjectFull(cwd)
+		if wsRes, ok := activity.WorkspaceProject(); ok {
+			res = wsRes
+		}
 		if processRes, ok := processProjectResult(cfg.DefaultProject); ok {
 			res = processRes
 		}
@@ -944,6 +947,15 @@ func handleUseWorkspace(activity *SessionActivity) server.ToolHandlerFunc {
 
 		activity.SetWorkspace(res.Project, res.Path)
 
+		// Open (or create) the workspace-specific SQLite DB so all subsequent
+		// tool calls are routed to this project's store, not the global one.
+		wsDataDir := filepath.Join(workspacePath, ".engram-lite")
+		wsStore, wsErr := store.New(store.FallbackConfig(wsDataDir))
+		if wsErr != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("workspace bound but store open failed: %s", wsErr)), nil
+		}
+		activity.SetWorkspaceStore(wsStore)
+
 		out, _ := jsonMarshal(map[string]any{
 			"project":        res.Project,
 			"project_source": res.Source,
@@ -956,6 +968,7 @@ func handleUseWorkspace(activity *SessionActivity) server.ToolHandlerFunc {
 
 func handleSearch(s *store.Store, cfg MCPConfig, activity *SessionActivity) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		es := activity.EffectiveStore(s)
 		query, _ := req.GetArguments()["query"].(string)
 		typ, _ := req.GetArguments()["type"].(string)
 		projectOverride, _ := req.GetArguments()["project"].(string)
@@ -963,7 +976,7 @@ func handleSearch(s *store.Store, cfg MCPConfig, activity *SessionActivity) serv
 		limit := intArg(req, "limit", 10)
 
 		// Resolve project: validate override or auto-detect (REQ-310, REQ-311)
-		detRes, err := resolveReadProjectWithProcessOverride(s, projectOverride, cfg.DefaultProject)
+		detRes, err := resolveReadProjectWithProcessOverride(es, projectOverride, cfg.DefaultProject)
 		if err != nil {
 			var upe *unknownProjectError
 			if errors.As(err, &upe) {
@@ -981,7 +994,7 @@ func handleSearch(s *store.Store, cfg MCPConfig, activity *SessionActivity) serv
 		sessionID := defaultSessionID(project)
 		activity.RecordToolCall(sessionID)
 
-		results, err := s.Search(query, store.SearchOptions{
+		results, err := es.Search(query, store.SearchOptions{
 			Type:    typ,
 			Project: project,
 			Scope:   scope,
@@ -1005,7 +1018,7 @@ func handleSearch(s *store.Store, cfg MCPConfig, activity *SessionActivity) serv
 		}
 		relationsMap := map[string]store.ObservationRelations{}
 		if len(syncIDs) > 0 {
-			if rm, relErr := s.GetRelationsForObservations(syncIDs); relErr == nil {
+			if rm, relErr := es.GetRelationsForObservations(syncIDs); relErr == nil {
 				relationsMap = rm
 			}
 			// Errors from relation loading are swallowed — search must not fail.
@@ -1091,6 +1104,7 @@ func handleSearch(s *store.Store, cfg MCPConfig, activity *SessionActivity) serv
 
 func handleSave(s *store.Store, cfg MCPConfig, activity *SessionActivity) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		es := activity.EffectiveStore(s)
 		title, _ := req.GetArguments()["title"].(string)
 		content, _ := req.GetArguments()["content"].(string)
 		if strings.TrimSpace(content) == "" {
@@ -1123,7 +1137,7 @@ func handleSave(s *store.Store, cfg MCPConfig, activity *SessionActivity) server
 
 		// Resolve write project using the full MCP precedence: explicit request,
 		// existing session association, process override, repo config/directory detection, then cwd fallback.
-		detRes, err := resolveSaveWriteProjectWithProcessOverride(s, projectChoice, explicitProjectProvided, projectChoiceReason, sessionID, validateRecoveryToken, cfg.DefaultProject, activity)
+		detRes, err := resolveSaveWriteProjectWithProcessOverride(es, projectChoice, explicitProjectProvided, projectChoiceReason, sessionID, validateRecoveryToken, cfg.DefaultProject, activity)
 		if err != nil {
 			return writeProjectErrorResult(activity, recoverySessionID, detRes, err), nil
 		}
@@ -1144,7 +1158,7 @@ func handleSave(s *store.Store, cfg MCPConfig, activity *SessionActivity) server
 		// Check for similar existing projects (only when this project has no existing observations)
 		var similarWarning string
 		if project != "" {
-			existingNames, _ := s.ListProjectNames()
+			existingNames, _ := es.ListProjectNames()
 			isNew := true
 			for _, e := range existingNames {
 				if e == project {
@@ -1156,18 +1170,18 @@ func handleSave(s *store.Store, cfg MCPConfig, activity *SessionActivity) server
 				matches := projectpkg.FindSimilar(project, existingNames, 3)
 				if len(matches) > 0 {
 					bestMatch := matches[0].Name
-					obsCount, _ := s.CountObservationsForProject(bestMatch)
+					obsCount, _ := es.CountObservationsForProject(bestMatch)
 					similarWarning = fmt.Sprintf("⚠️ Project %q has no memories. Similar project found: %q (%d memories). Consider using that name instead.", project, bestMatch, obsCount)
 				}
 			}
 		}
 
 		// Ensure the implicit MCP session exists with the current working directory.
-		_ = ensureImplicitSessionWithCWD(s, sessionID, project)
+		_ = ensureImplicitSessionWithCWD(es, sessionID, project)
 
-		truncated := len(content) > s.MaxObservationLength()
+		truncated := len(content) > es.MaxObservationLength()
 
-		savedID, err := s.AddObservation(store.AddObservationParams{
+		savedID, err := es.AddObservation(store.AddObservationParams{
 			SessionID: sessionID,
 			Type:      typ,
 			Title:     title,
@@ -1182,7 +1196,7 @@ func handleSave(s *store.Store, cfg MCPConfig, activity *SessionActivity) server
 
 		if capturePrompt && activity != nil {
 			if prompt, ok := activity.CurrentPrompt(sessionID, project); ok {
-				if _, _, promptErr := addPromptIfMissing(s, store.AddPromptParams{
+				if _, _, promptErr := addPromptIfMissing(es, store.AddPromptParams{
 					SessionID: sessionID,
 					Content:   prompt,
 					Project:   project,
@@ -1201,7 +1215,7 @@ func handleSave(s *store.Store, cfg MCPConfig, activity *SessionActivity) server
 			msg += fmt.Sprintf("\nSuggested topic_key: %s", suggestedTopicKey)
 		}
 		if truncated {
-			msg += fmt.Sprintf("\n⚠ WARNING: Content was truncated from %d to %d chars. Consider splitting into smaller observations.", len(content), s.MaxObservationLength())
+			msg += fmt.Sprintf("\n⚠ WARNING: Content was truncated from %d to %d chars. Consider splitting into smaller observations.", len(content), es.MaxObservationLength())
 		}
 		if normWarning != "" {
 			msg += "\n" + normWarning
@@ -1223,7 +1237,7 @@ func handleSave(s *store.Store, cfg MCPConfig, activity *SessionActivity) server
 		if cfg.Limit != nil {
 			candOpts.Limit = *cfg.Limit
 		}
-		candidates, candErr := s.FindCandidates(savedID, candOpts)
+		candidates, candErr := es.FindCandidates(savedID, candOpts)
 		if candErr != nil {
 			// Log only — do not fail the save.
 			fmt.Fprintf(os.Stderr, "engram: FindCandidates error (non-fatal): %v\n", candErr)
@@ -1231,7 +1245,7 @@ func handleSave(s *store.Store, cfg MCPConfig, activity *SessionActivity) server
 
 		// Fetch the saved observation's sync_id for the envelope (REQ-001).
 		var savedSyncID string
-		if obs, obsErr := s.GetObservation(savedID); obsErr == nil {
+		if obs, obsErr := es.GetObservation(savedID); obsErr == nil {
 			savedSyncID = obs.SyncID
 			extra["id"] = savedID
 			extra["sync_id"] = savedSyncID
@@ -1289,8 +1303,9 @@ func handleSuggestTopicKey() server.ToolHandlerFunc {
 	}
 }
 
-func handleUpdate(s *store.Store) server.ToolHandlerFunc {
+func handleUpdate(s *store.Store, activity *SessionActivity) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		es := activity.EffectiveStore(s)
 		id := int64(intArg(req, "id", 0))
 		if id == 0 {
 			return mcp.NewToolResultError("id is required"), nil
@@ -1322,13 +1337,13 @@ func handleUpdate(s *store.Store) server.ToolHandlerFunc {
 			contentLen = len(*update.Content)
 		}
 
-		obs, err := s.UpdateObservation(id, update)
+		obs, err := es.UpdateObservation(id, update)
 		if err != nil {
 			return mcp.NewToolResultError("Failed to update memory: " + err.Error()), nil
 		}
 
 		msg := fmt.Sprintf("Memory updated: #%d %q (%s, scope=%s)", obs.ID, obs.Title, obs.Type, obs.Scope)
-		if contentLen > s.MaxObservationLength() {
+		if contentLen > es.MaxObservationLength() {
 			msg += fmt.Sprintf("\n⚠ WARNING: Content was truncated from %d to %d chars. Consider splitting into smaller observations.", contentLen, s.MaxObservationLength())
 		}
 
@@ -1342,15 +1357,16 @@ func handleUpdate(s *store.Store) server.ToolHandlerFunc {
 	}
 }
 
-func handleDelete(s *store.Store) server.ToolHandlerFunc {
+func handleDelete(s *store.Store, activity *SessionActivity) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		es := activity.EffectiveStore(s)
 		id := int64(intArg(req, "id", 0))
 		if id == 0 {
 			return mcp.NewToolResultError("id is required"), nil
 		}
 
 		hardDelete := boolArg(req, "hard_delete", false)
-		if err := s.DeleteObservation(id, hardDelete); err != nil {
+		if err := es.DeleteObservation(id, hardDelete); err != nil {
 			return mcp.NewToolResultError("Failed to delete memory: " + err.Error()), nil
 		}
 
@@ -1364,6 +1380,7 @@ func handleDelete(s *store.Store) server.ToolHandlerFunc {
 
 func handleSavePrompt(s *store.Store, cfg MCPConfig, activity *SessionActivity) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		es := activity.EffectiveStore(s)
 		content, _ := req.GetArguments()["content"].(string)
 		sessionID, _ := req.GetArguments()["session_id"].(string)
 		projectChoice, _ := req.GetArguments()["project"].(string)
@@ -1391,9 +1408,9 @@ func handleSavePrompt(s *store.Store, cfg MCPConfig, activity *SessionActivity) 
 		}
 
 		// Ensure the implicit MCP session exists with the current working directory.
-		_ = ensureImplicitSessionWithCWD(s, sessionID, project)
+		_ = ensureImplicitSessionWithCWD(es, sessionID, project)
 
-		_, err = s.AddPrompt(store.AddPromptParams{
+		_, err = es.AddPrompt(store.AddPromptParams{
 			SessionID: sessionID,
 			Content:   content,
 			Project:   project,
@@ -1413,11 +1430,12 @@ func handleSavePrompt(s *store.Store, cfg MCPConfig, activity *SessionActivity) 
 
 func handleContext(s *store.Store, cfg MCPConfig, activity *SessionActivity) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		es := activity.EffectiveStore(s)
 		projectOverride, _ := req.GetArguments()["project"].(string)
 		scope, _ := req.GetArguments()["scope"].(string)
 
 		// Resolve project: validate override or auto-detect (REQ-310, REQ-311)
-		detRes, err := resolveReadProjectWithProcessOverride(s, projectOverride, cfg.DefaultProject)
+		detRes, err := resolveReadProjectWithProcessOverride(es, projectOverride, cfg.DefaultProject)
 		if err != nil {
 			var upe *unknownProjectError
 			if errors.As(err, &upe) {
@@ -1435,7 +1453,7 @@ func handleContext(s *store.Store, cfg MCPConfig, activity *SessionActivity) ser
 		sessionID := defaultSessionID(project)
 		activity.RecordToolCall(sessionID)
 
-		contextResult, err := s.FormatContext(project, scope)
+		contextResult, err := es.FormatContext(project, scope)
 		if err != nil {
 			return mcp.NewToolResultError("Failed to get context: " + err.Error()), nil
 		}
@@ -1444,7 +1462,7 @@ func handleContext(s *store.Store, cfg MCPConfig, activity *SessionActivity) ser
 			return respondWithProject(detRes, "No previous session memories found.", nil), nil
 		}
 
-		stats, _ := s.Stats()
+		stats, _ := es.Stats()
 		var projects string
 		if len(stats.Projects) > 0 {
 			projects = strings.Join(stats.Projects, ", ")
@@ -1606,14 +1624,15 @@ func handleTimeline(s *store.Store, cfg MCPConfig) server.ToolHandlerFunc {
 	}
 }
 
-func handleGetObservation(s *store.Store, cfg MCPConfig) server.ToolHandlerFunc {
+func handleGetObservation(s *store.Store, cfg MCPConfig, activity *SessionActivity) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		es := activity.EffectiveStore(s)
 		id := int64(intArg(req, "id", 0))
 		if id == 0 {
 			return mcp.NewToolResultError("id is required"), nil
 		}
 
-		obs, err := s.GetObservation(id)
+		obs, err := es.GetObservation(id)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Observation #%d not found", id)), nil
 		}
@@ -1621,7 +1640,7 @@ func handleGetObservation(s *store.Store, cfg MCPConfig) server.ToolHandlerFunc 
 		// Resolve project from process override/cwd (REQ-310, REQ-314). No per-call
 		// override possible for get-by-ID. Tolerant: don't fail the fetch on
 		// resolution error; degrade to plain text.
-		detRes, detErr := resolveReadProjectWithProcessOverride(s, "", cfg.DefaultProject)
+		detRes, detErr := resolveReadProjectWithProcessOverride(es, "", cfg.DefaultProject)
 
 		obsProject := ""
 		if obs.Project != nil {
@@ -1657,6 +1676,7 @@ func handleGetObservation(s *store.Store, cfg MCPConfig) server.ToolHandlerFunc 
 
 func handleSessionSummary(s *store.Store, cfg MCPConfig, activity *SessionActivity) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		es := activity.EffectiveStore(s)
 		content, _ := req.GetArguments()["content"].(string)
 		sessionID, _ := req.GetArguments()["session_id"].(string)
 		// project field intentionally not read — auto-detect only (REQ-308 write-tool contract)
@@ -1673,9 +1693,9 @@ func handleSessionSummary(s *store.Store, cfg MCPConfig, activity *SessionActivi
 		}
 
 		// Ensure the implicit MCP session exists with the current working directory.
-		_ = ensureImplicitSessionWithCWD(s, sessionID, project)
+		_ = ensureImplicitSessionWithCWD(es, sessionID, project)
 
-		_, err = s.AddObservation(store.AddObservationParams{
+		_, err = es.AddObservation(store.AddObservationParams{
 			SessionID: sessionID,
 			Type:      "session_summary",
 			Title:     fmt.Sprintf("Session summary: %s", project),
@@ -1697,6 +1717,7 @@ func handleSessionSummary(s *store.Store, cfg MCPConfig, activity *SessionActivi
 
 func handleSessionStart(s *store.Store, cfg MCPConfig, activity *SessionActivity) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		es := activity.EffectiveStore(s)
 		id, _ := req.GetArguments()["id"].(string)
 		directory, _ := req.GetArguments()["directory"].(string)
 		resolvedDirectory := strings.TrimSpace(directory)
@@ -1716,7 +1737,7 @@ func handleSessionStart(s *store.Store, cfg MCPConfig, activity *SessionActivity
 			}
 		}
 
-		if err := s.CreateSession(id, project, resolvedDirectory); err != nil {
+		if err := es.CreateSession(id, project, resolvedDirectory); err != nil {
 			return mcp.NewToolResultError("Failed to start session: " + err.Error()), nil
 		}
 
@@ -1738,6 +1759,7 @@ func resolveSessionStartProject(explicitDirectory string, activity *SessionActiv
 
 func handleSessionEnd(s *store.Store, cfg MCPConfig, activity *SessionActivity) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		es := activity.EffectiveStore(s)
 		id, _ := req.GetArguments()["id"].(string)
 		summary, _ := req.GetArguments()["summary"].(string)
 		// project field intentionally not read — auto-detect only (REQ-308)
@@ -1758,7 +1780,7 @@ func handleSessionEnd(s *store.Store, cfg MCPConfig, activity *SessionActivity) 
 		}
 		project, _ := store.NormalizeProject(detRes.Project)
 
-		if err := s.EndSession(id, summary); err != nil {
+		if err := es.EndSession(id, summary); err != nil {
 			return mcp.NewToolResultError("Failed to end session: " + err.Error()), nil
 		}
 
@@ -1771,6 +1793,7 @@ func handleSessionEnd(s *store.Store, cfg MCPConfig, activity *SessionActivity) 
 
 func handleCapturePassive(s *store.Store, cfg MCPConfig, activity *SessionActivity) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		es := activity.EffectiveStore(s)
 		content, _ := req.GetArguments()["content"].(string)
 		sessionID, _ := req.GetArguments()["session_id"].(string)
 		source, _ := req.GetArguments()["source"].(string)
@@ -1790,14 +1813,14 @@ func handleCapturePassive(s *store.Store, cfg MCPConfig, activity *SessionActivi
 
 		if sessionID == "" {
 			sessionID = defaultSessionID(project)
-			_ = ensureImplicitSessionWithCWD(s, sessionID, project)
+			_ = ensureImplicitSessionWithCWD(es, sessionID, project)
 		}
 
 		if source == "" {
 			source = "mcp-passive"
 		}
 
-		result, err := s.PassiveCapture(store.PassiveCaptureParams{
+		result, err := es.PassiveCapture(store.PassiveCaptureParams{
 			SessionID: sessionID,
 			Content:   content,
 			Project:   project,
@@ -1826,6 +1849,7 @@ func handleCapturePassive(s *store.Store, cfg MCPConfig, activity *SessionActivi
 // Ask the user when ambiguous."
 func handleJudge(s *store.Store, activity *SessionActivity) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		es := activity.EffectiveStore(s)
 		judgmentID, _ := req.GetArguments()["judgment_id"].(string)
 		relation, _ := req.GetArguments()["relation"].(string)
 
@@ -1860,7 +1884,7 @@ func handleJudge(s *store.Store, activity *SessionActivity) server.ToolHandlerFu
 		markedByKind := "agent"
 		markedByModel := "" // No model ID available at MCP layer without explicit param.
 
-		result, err := s.JudgeRelation(store.JudgeRelationParams{
+		result, err := es.JudgeRelation(store.JudgeRelationParams{
 			JudgmentID:    judgmentID,
 			Relation:      relation,
 			Reason:        reason,
@@ -1890,8 +1914,9 @@ func handleJudge(s *store.Store, activity *SessionActivity) server.ToolHandlerFu
 // "Persist a semantic verdict you have already judged externally into Engram.
 // Accepts int IDs for both observations, resolves them to sync_ids, then
 // calls JudgeBySemantic. Returns the persisted relation's sync_id."
-func handleCompare(s *store.Store, _ *SessionActivity) server.ToolHandlerFunc {
+func handleCompare(s *store.Store, activity *SessionActivity) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		es := activity.EffectiveStore(s)
 		// --- required numeric IDs ---
 		rawA, okA := req.GetArguments()["memory_id_a"].(float64)
 		rawB, okB := req.GetArguments()["memory_id_b"].(float64)
@@ -1927,16 +1952,16 @@ func handleCompare(s *store.Store, _ *SessionActivity) server.ToolHandlerFunc {
 		model, _ := req.GetArguments()["model"].(string)
 
 		// Resolve integer IDs to sync_ids.
-		obsA, err := s.GetObservation(idA)
+		obsA, err := es.GetObservation(idA)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("observation id=%d not found: %s", idA, err)), nil
 		}
-		obsB, err := s.GetObservation(idB)
+		obsB, err := es.GetObservation(idB)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("observation id=%d not found: %s", idB, err)), nil
 		}
 
-		syncID, err := s.JudgeBySemantic(store.JudgeBySemanticParams{
+		syncID, err := es.JudgeBySemantic(store.JudgeBySemanticParams{
 			SourceID:   obsA.SyncID,
 			TargetID:   obsB.SyncID,
 			Relation:   relation,
@@ -1957,8 +1982,9 @@ func handleCompare(s *store.Store, _ *SessionActivity) server.ToolHandlerFunc {
 	}
 }
 
-func handleMergeProjects(s *store.Store) server.ToolHandlerFunc {
+func handleMergeProjects(s *store.Store, activity *SessionActivity) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		es := activity.EffectiveStore(s)
 		fromStr, _ := req.GetArguments()["from"].(string)
 		to, _ := req.GetArguments()["to"].(string)
 
@@ -1978,7 +2004,7 @@ func handleMergeProjects(s *store.Store) server.ToolHandlerFunc {
 			return mcp.NewToolResultError("at least one source project name is required in 'from'"), nil
 		}
 
-		result, err := s.MergeProjects(sources, to)
+		result, err := es.MergeProjects(sources, to)
 		if err != nil {
 			return mcp.NewToolResultError("Merge failed: " + err.Error()), nil
 		}
