@@ -177,6 +177,7 @@ func NewServer(s *store.Store) *server.MCPServer {
 const serverInstructions = `Engram provides persistent memory that survives across sessions and compactions.
 
 CORE TOOLS (always available — use without ToolSearch):
+  mem_use_workspace — bind session to workspace project (CALL FIRST if CWD is not the project root, e.g. Windsurf/Cascade)
   mem_save — save decisions, bugs, discoveries, conventions PROACTIVELY (do not wait to be asked)
   mem_search — find past work, decisions, or context from previous sessions
   mem_context — get recent session history (call at session start or after compaction)
@@ -745,7 +746,6 @@ Duplicates are automatically detected and skipped — safe to call multiple time
 		srv.AddTool(
 			mcp.NewTool("mem_use_workspace",
 				mcp.WithDescription("Bind this MCP session to a workspace project by reading .engram-lite/config.json from the given path. Use this when the MCP server's working directory does not correspond to the project (e.g. Windsurf/Cascade). After a successful call all subsequent memory operations target the resolved project. Idempotent — calling again with a different path updates the active workspace."),
-				mcp.WithDeferLoading(true),
 				mcp.WithTitleAnnotation("Use Workspace"),
 				mcp.WithReadOnlyHintAnnotation(false),
 				mcp.WithDestructiveHintAnnotation(false),
