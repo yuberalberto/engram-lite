@@ -1309,6 +1309,7 @@ func TestResolveToolsAgentProfile(t *testing.T) {
 		"mem_judge",           // REQ-003: conflict verdict tool (Phase D)
 		"mem_compare",         // REQ-011: persist agent-judged semantic verdict (Phase G)
 		"mem_doctor",          // read-only operational diagnostics
+		"mem_use_workspace",   // connection-scoped workspace binding (Cascade/Windsurf)
 	}
 	for _, tool := range expectedTools {
 		if !result[tool] {
@@ -1353,13 +1354,13 @@ func TestResolveToolsCombinedProfiles(t *testing.T) {
 		t.Fatal("expected non-nil allowlist for combined profiles")
 	}
 
-	// Should have all 19 tools (mem_doctor added for operational diagnostics)
+	// Should have all 20 tools (mem_use_workspace added for Cascade/Windsurf workspace binding)
 	allTools := []string{
 		"mem_save", "mem_search", "mem_context", "mem_session_summary",
 		"mem_session_start", "mem_session_end", "mem_get_observation",
 		"mem_suggest_topic_key", "mem_capture_passive", "mem_save_prompt",
 		"mem_update", "mem_delete", "mem_stats", "mem_timeline", "mem_merge_projects",
-		"mem_current_project", "mem_judge", "mem_compare", "mem_doctor",
+		"mem_current_project", "mem_judge", "mem_compare", "mem_doctor", "mem_use_workspace",
 	}
 	for _, tool := range allTools {
 		if !result[tool] {
@@ -1948,7 +1949,7 @@ func TestNewServerWithToolsNilRegistersAll(t *testing.T) {
 		"mem_session_start", "mem_session_end", "mem_get_observation",
 		"mem_suggest_topic_key", "mem_capture_passive", "mem_save_prompt",
 		"mem_update", "mem_delete", "mem_stats", "mem_timeline", "mem_merge_projects",
-		"mem_current_project", "mem_judge", "mem_compare", "mem_doctor",
+		"mem_current_project", "mem_judge", "mem_compare", "mem_doctor", "mem_use_workspace",
 	}
 
 	for _, name := range allTools {
@@ -2055,14 +2056,14 @@ func TestNewServerBackwardsCompatible(t *testing.T) {
 	srv := NewServer(s)
 	tools := srv.ListTools()
 
-	// 15 agent + 4 admin = 19 total (mem_doctor added for diagnostics)
-	if len(tools) != 19 {
-		t.Errorf("NewServer should register all 19 tools, got %d", len(tools))
+	// 16 agent + 4 admin = 20 total (mem_use_workspace added for Cascade/Windsurf)
+	if len(tools) != 20 {
+		t.Errorf("NewServer should register all 20 tools, got %d", len(tools))
 	}
 }
 
 func TestProfileConsistency(t *testing.T) {
-	// Verify that agent + admin = all 19 tools
+	// Verify that agent + admin = all 20 tools
 	combined := make(map[string]bool)
 	for tool := range ProfileAgent {
 		combined[tool] = true
@@ -2071,9 +2072,9 @@ func TestProfileConsistency(t *testing.T) {
 		combined[tool] = true
 	}
 
-	// 15 agent + 4 admin = 19 total (mem_doctor added for diagnostics)
-	if len(combined) != 19 {
-		t.Errorf("agent + admin should cover all 19 tools, got %d", len(combined))
+	// 16 agent + 4 admin = 20 total (mem_use_workspace added for Cascade/Windsurf)
+	if len(combined) != 20 {
+		t.Errorf("agent + admin should cover all 20 tools, got %d", len(combined))
 	}
 
 	// Verify no overlap between profiles
@@ -2401,9 +2402,9 @@ func TestNewServerWithConfig(t *testing.T) {
 		t.Fatal("expected MCP server instance")
 	}
 	tools := srv.ListTools()
-	// Should have all 19 tools (15 agent + 4 admin; mem_doctor added)
-	if len(tools) != 19 {
-		t.Errorf("NewServerWithConfig should register all 19 tools, got %d", len(tools))
+	// Should have all 20 tools (16 agent + 4 admin; mem_use_workspace added)
+	if len(tools) != 20 {
+		t.Errorf("NewServerWithConfig should register all 20 tools, got %d", len(tools))
 	}
 }
 
@@ -6596,7 +6597,7 @@ func TestProcessOverrideReadKeepsPerCallValidation(t *testing.T) {
 
 func TestProcessOverrideSaveWriteKeepsExplicitEmptyProjectInvalid(t *testing.T) {
 	s := newMCPTestStore(t)
-	_, err := resolveSaveWriteProjectWithProcessOverride(s, "", true, "", "", nil, "Trusted Project")
+	_, err := resolveSaveWriteProjectWithProcessOverride(s, "", true, "", "", nil, "Trusted Project", nil)
 	if err == nil {
 		t.Fatal("expected invalid explicit project error")
 	}
@@ -6618,7 +6619,7 @@ func TestProcessOverrideSaveWriteResolutionBeforeCWD(t *testing.T) {
 	t.Chdir(parent)
 
 	s := newMCPTestStore(t)
-	detRes, err := resolveSaveWriteProjectWithProcessOverride(s, "", false, "", "", nil, "Trusted Project")
+	detRes, err := resolveSaveWriteProjectWithProcessOverride(s, "", false, "", "", nil, "Trusted Project", nil)
 	if err != nil {
 		t.Fatalf("resolve save write with process override: %v", err)
 	}
@@ -6647,5 +6648,269 @@ func TestProcessOverrideSaveHandlerWritesToDefaultProject(t *testing.T) {
 	}
 	if len(results) != 1 {
 		t.Fatalf("results in trusted project = %d; want 1", len(results))
+	}
+}
+
+// ─── mem_use_workspace ───────────────────────────────────────────────────────
+
+func workspaceWithConfig(t *testing.T, projectName string) string {
+	t.Helper()
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, ".engram-lite")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir .engram-lite: %v", err)
+	}
+	configData := fmt.Sprintf(`{"project_name": %q}`, projectName)
+	if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte(configData), 0o644); err != nil {
+		t.Fatalf("write config.json: %v", err)
+	}
+	return dir
+}
+
+// Tracer bullet: valid workspace resolves project from config.json.
+func TestUseWorkspace__should_resolve_project__when_config_present(t *testing.T) {
+	dir := workspaceWithConfig(t, "my-workspace-project")
+	activity := NewSessionActivity(10 * time.Minute)
+	h := handleUseWorkspace(activity)
+
+	res, err := h(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
+		"workspace_path": dir,
+	}}})
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", callResultText(t, res))
+	}
+
+	text := callResultText(t, res)
+	if !strings.Contains(text, "my-workspace-project") {
+		t.Fatalf("expected project name in response, got: %q", text)
+	}
+}
+
+// Missing config.json must return IsError=true.
+func TestUseWorkspace__should_return_error__when_config_missing(t *testing.T) {
+	dir := t.TempDir() // no .engram-lite/config.json
+	activity := NewSessionActivity(10 * time.Minute)
+	h := handleUseWorkspace(activity)
+
+	res, err := h(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
+		"workspace_path": dir,
+	}}})
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if !res.IsError {
+		t.Fatalf("expected IsError=true when config.json missing, got: %s", callResultText(t, res))
+	}
+}
+
+// After mem_use_workspace, mem_save targets the workspace project (not CWD).
+func TestUseWorkspace__should_route_writes_to_workspace__after_binding(t *testing.T) {
+	// CWD is a different git repo — should NOT be targeted after workspace binding.
+	cdToNamedGitRepo(t, "cwd-project")
+	wsDir := workspaceWithConfig(t, "cascade-project")
+
+	s := newMCPTestStore(t)
+	activity := NewSessionActivity(10 * time.Minute)
+
+	// Bind session to workspace.
+	useWs := handleUseWorkspace(activity)
+	if res, err := useWs(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
+		"workspace_path": wsDir,
+	}}}); err != nil || res.IsError {
+		t.Fatalf("use_workspace failed: err=%v isError=%v text=%q", err, res.IsError, callResultText(t, res))
+	}
+
+	// mem_save with no explicit project — should route to workspace project.
+	save := handleSave(s, MCPConfig{}, activity)
+	res, err := save(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
+		"title":   "Cascade memory",
+		"content": "Written from Cascade workspace",
+		"type":    "manual",
+	}}})
+	if err != nil || res.IsError {
+		t.Fatalf("save error: err=%v isError=%v text=%q", err, res.IsError, callResultText(t, res))
+	}
+
+	results, err := s.Search("Cascade memory", store.SearchOptions{Project: "cascade-project", Limit: 5})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result in cascade-project, got %d", len(results))
+	}
+}
+
+// Calling mem_use_workspace twice updates the active workspace to the second path.
+func TestUseWorkspace__should_update_workspace__when_called_twice(t *testing.T) {
+	dir1 := workspaceWithConfig(t, "first-project")
+	dir2 := workspaceWithConfig(t, "second-project")
+	activity := NewSessionActivity(10 * time.Minute)
+	h := handleUseWorkspace(activity)
+
+	// First binding.
+	if res, err := h(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
+		"workspace_path": dir1,
+	}}}); err != nil || res.IsError {
+		t.Fatalf("first call failed: err=%v isError=%v", err, res.IsError)
+	}
+
+	// Second binding overwrites.
+	res, err := h(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
+		"workspace_path": dir2,
+	}}})
+	if err != nil || res.IsError {
+		t.Fatalf("second call failed: err=%v isError=%v text=%q", err, res.IsError, callResultText(t, res))
+	}
+
+	wsRes, ok := activity.WorkspaceProject()
+	if !ok {
+		t.Fatal("expected workspace to be set after second call")
+	}
+	if wsRes.Project != "second-project" {
+		t.Fatalf("expected second-project, got %q", wsRes.Project)
+	}
+}
+
+// ─── 002-02 write tool enforcement ───────────────────────────────────────────
+
+// Read tools must remain permissive — enforcement only applies to writes.
+func TestWriteEnforcement__read_tools__should_succeed__when_no_workspace_context(t *testing.T) {
+	t.Chdir(t.TempDir()) // non-git dir → only dir_basename detection
+	s := newMCPTestStore(t)
+	activity := NewSessionActivity(10 * time.Minute)
+	cfg := MCPConfig{DefaultProject: "engram-lite"} // process override for reads
+
+	for _, tc := range []struct {
+		name string
+		fn   func() *mcppkg.CallToolResult
+	}{
+		{"mem_search", func() *mcppkg.CallToolResult {
+			h := handleSearch(s, cfg, activity)
+			res, _ := h(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
+				"query": "anything",
+			}}})
+			return res
+		}},
+		{"mem_context", func() *mcppkg.CallToolResult {
+			h := handleContext(s, cfg, activity)
+			res, _ := h(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{}}})
+			return res
+		}},
+		{"mem_get_observation", func() *mcppkg.CallToolResult {
+			h := handleGetObservation(s, cfg)
+			res, _ := h(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
+				"id": float64(9999),
+			}}})
+			return res
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res := tc.fn()
+			if res == nil {
+				t.Fatal("nil result")
+			}
+			text := callResultText(t, res)
+			if strings.Contains(text, "mem_use_workspace") && res.IsError {
+				t.Fatalf("read tool %q must not return enforcement error, got: %s", tc.name, text)
+			}
+		})
+	}
+}
+
+// Tracer bullet: mem_save in a non-git dir with no process override and no
+// workspace binding must return IsError=true with the enforcement message.
+func TestWriteEnforcement__mem_save__should_return_enforcement_error__when_no_workspace_and_no_git_cwd(t *testing.T) {
+	t.Chdir(t.TempDir()) // non-git dir → only dir_basename detection
+	s := newMCPTestStore(t)
+	activity := NewSessionActivity(10 * time.Minute)
+
+	save := handleSave(s, MCPConfig{}, activity)
+	res, err := save(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
+		"title":   "test",
+		"content": "test content",
+	}}})
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if !res.IsError {
+		t.Fatalf("expected IsError=true, got success: %s", callResultText(t, res))
+	}
+	text := callResultText(t, res)
+	if !strings.Contains(text, "mem_use_workspace") {
+		t.Fatalf("expected 'mem_use_workspace' in error message, got: %q", text)
+	}
+	// AC#2: error_code must be no_project_context
+	var body map[string]any
+	if err := json.Unmarshal([]byte(text), &body); err != nil {
+		t.Fatalf("response not JSON: %v", err)
+	}
+	if body["error_code"] != "no_project_context" {
+		t.Fatalf("expected error_code=no_project_context, got %v", body["error_code"])
+	}
+}
+
+// After mem_use_workspace is called, mem_save must succeed (AC#3).
+// (Covered by TestUseWorkspace__should_route_writes_to_workspace__after_binding
+// which exercises the same path with a git CWD + workspace override.)
+
+// mem_save_prompt enforces the same rule as mem_save.
+func TestWriteEnforcement__mem_save_prompt__should_return_enforcement_error__when_no_workspace_and_no_git_cwd(t *testing.T) {
+	t.Chdir(t.TempDir())
+	s := newMCPTestStore(t)
+	activity := NewSessionActivity(10 * time.Minute)
+
+	save := handleSavePrompt(s, MCPConfig{}, activity)
+	res, err := save(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
+		"content": "user prompt text",
+	}}})
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if !res.IsError {
+		t.Fatalf("expected IsError=true, got success: %s", callResultText(t, res))
+	}
+	if !strings.Contains(callResultText(t, res), "mem_use_workspace") {
+		t.Fatalf("expected enforcement message, got: %s", callResultText(t, res))
+	}
+}
+
+// mem_session_summary enforces the same rule.
+func TestWriteEnforcement__mem_session_summary__should_return_enforcement_error__when_no_workspace_and_no_git_cwd(t *testing.T) {
+	t.Chdir(t.TempDir())
+	s := newMCPTestStore(t)
+	activity := NewSessionActivity(10 * time.Minute)
+
+	save := handleSessionSummary(s, MCPConfig{}, activity)
+	res, err := save(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
+		"content": "session summary text",
+	}}})
+	if err != nil {
+		t.Fatalf("handler error: %v", err)
+	}
+	if !res.IsError {
+		t.Fatalf("expected IsError=true, got success: %s", callResultText(t, res))
+	}
+	if !strings.Contains(callResultText(t, res), "mem_use_workspace") {
+		t.Fatalf("expected enforcement message, got: %s", callResultText(t, res))
+	}
+}
+
+// Existing write tools under git CWD must continue to work (AC#5 — regression).
+func TestWriteEnforcement__mem_save__should_succeed__when_git_cwd_detected(t *testing.T) {
+	cdToNamedGitRepo(t, "my-project")
+	s := newMCPTestStore(t)
+	activity := NewSessionActivity(10 * time.Minute)
+
+	save := handleSave(s, MCPConfig{}, activity)
+	res, err := save(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
+		"title":   "git project save",
+		"content": "saved from a real git repo",
+	}}})
+	if err != nil || res.IsError {
+		t.Fatalf("expected success from git CWD: err=%v isError=%v text=%q",
+			err, res.IsError, callResultText(t, res))
 	}
 }

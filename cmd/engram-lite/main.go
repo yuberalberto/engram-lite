@@ -387,6 +387,17 @@ func runInit(workspaceRoot string, prompter ide.Prompter) error {
 		}
 	}
 
+	switch wr := ide.WriteWindsurfRule(workspaceRoot); wr.Kind {
+	case ide.ResultCreated:
+		fmt.Println("  Windsurf rule created: .windsurf/rules.md")
+	case ide.ResultMerged:
+		fmt.Println("  Windsurf rule added: .windsurf/rules.md (mem_use_workspace rule appended)")
+	case ide.ResultSkipped:
+		fmt.Println("  Windsurf rule unchanged: .windsurf/rules.md (already configured)")
+	case ide.ResultError:
+		fmt.Printf("  Windsurf rule error: %v\n", wr.Err)
+	}
+
 	return nil
 }
 

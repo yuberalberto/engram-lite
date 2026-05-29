@@ -114,6 +114,7 @@ var ProfileAgent = map[string]bool{
 	"mem_judge":             true, // record verdict on a pending memory conflict (REQ-003, Phase D)
 	"mem_compare":           true, // persist an agent-judged semantic verdict via JudgeBySemantic (REQ-011, Phase G)
 	"mem_doctor":            true, // read-only operational diagnostics for agents
+	"mem_use_workspace":     true, // bind session to workspace project (Cascade/Windsurf)
 }
 
 // ProfileAdmin contains tools for TUI, dashboards, and manual curation
@@ -739,6 +740,26 @@ Duplicates are automatically detected and skipped — safe to call multiple time
 		)
 	}
 
+	// ─── mem_use_workspace (profile: agent, deferred) ───────────────────
+	if shouldRegister("mem_use_workspace", allowlist) {
+		srv.AddTool(
+			mcp.NewTool("mem_use_workspace",
+				mcp.WithDescription("Bind this MCP session to a workspace project by reading .engram-lite/config.json from the given path. Use this when the MCP server's working directory does not correspond to the project (e.g. Windsurf/Cascade). After a successful call all subsequent memory operations target the resolved project. Idempotent — calling again with a different path updates the active workspace."),
+				mcp.WithDeferLoading(true),
+				mcp.WithTitleAnnotation("Use Workspace"),
+				mcp.WithReadOnlyHintAnnotation(false),
+				mcp.WithDestructiveHintAnnotation(false),
+				mcp.WithIdempotentHintAnnotation(true),
+				mcp.WithOpenWorldHintAnnotation(false),
+				mcp.WithString("workspace_path",
+					mcp.Required(),
+					mcp.Description("Absolute path to the workspace root. Must contain .engram-lite/config.json with a project_name field."),
+				),
+			),
+			handleUseWorkspace(activity),
+		)
+	}
+
 	// ─── mem_doctor (profile: agent, deferred) ──────────────────────────
 	if shouldRegister("mem_doctor", allowlist) {
 		srv.AddTool(
@@ -898,6 +919,37 @@ func handleCurrentProject(s *store.Store, cfg MCPConfig) server.ToolHandlerFunc 
 			envelope["error_hint"] = res.Error.Error()
 		}
 		out, _ := jsonMarshal(envelope)
+		return mcp.NewToolResultText(string(out)), nil
+	}
+}
+
+func handleUseWorkspace(activity *SessionActivity) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		workspacePath, _ := req.GetArguments()["workspace_path"].(string)
+		workspacePath = strings.TrimSpace(workspacePath)
+		if workspacePath == "" {
+			return mcp.NewToolResultError("workspace_path is required"), nil
+		}
+
+		res := projectpkg.DetectProjectFull(workspacePath)
+		if res.Source != projectpkg.SourceConfig {
+			return mcp.NewToolResultError(fmt.Sprintf(
+				"workspace_path %q must contain .engram-lite/config.json with a valid project_name field",
+				workspacePath,
+			)), nil
+		}
+		if res.Error != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("invalid workspace config: %s", res.Error)), nil
+		}
+
+		activity.SetWorkspace(res.Project, res.Path)
+
+		out, _ := jsonMarshal(map[string]any{
+			"project":        res.Project,
+			"project_source": res.Source,
+			"project_path":   res.Path,
+			"result":         fmt.Sprintf("Workspace bound to project %q", res.Project),
+		})
 		return mcp.NewToolResultText(string(out)), nil
 	}
 }
@@ -1071,7 +1123,7 @@ func handleSave(s *store.Store, cfg MCPConfig, activity *SessionActivity) server
 
 		// Resolve write project using the full MCP precedence: explicit request,
 		// existing session association, process override, repo config/directory detection, then cwd fallback.
-		detRes, err := resolveSaveWriteProjectWithProcessOverride(s, projectChoice, explicitProjectProvided, projectChoiceReason, sessionID, validateRecoveryToken, cfg.DefaultProject)
+		detRes, err := resolveSaveWriteProjectWithProcessOverride(s, projectChoice, explicitProjectProvided, projectChoiceReason, sessionID, validateRecoveryToken, cfg.DefaultProject, activity)
 		if err != nil {
 			return writeProjectErrorResult(activity, recoverySessionID, detRes, err), nil
 		}
@@ -1328,7 +1380,7 @@ func handleSavePrompt(s *store.Store, cfg MCPConfig, activity *SessionActivity) 
 			return true, activity.ValidateAmbiguousProjectRecoveryToken(recoverySessionID, recoveryToken, strings.TrimSpace(choice), res.AvailableProjects, res.Path)
 		}
 
-		detRes, err := resolveWriteProjectWithChoiceAndProcessOverride(projectChoice, projectChoiceReason, validateRecoveryToken, cfg.DefaultProject)
+		detRes, err := resolveWriteProjectWithChoiceAndProcessOverride(projectChoice, projectChoiceReason, validateRecoveryToken, cfg.DefaultProject, activity)
 		if err != nil {
 			return writeProjectErrorResult(activity, recoverySessionID, detRes, err), nil
 		}
@@ -1610,7 +1662,7 @@ func handleSessionSummary(s *store.Store, cfg MCPConfig, activity *SessionActivi
 		// project field intentionally not read — auto-detect only (REQ-308 write-tool contract)
 
 		// Auto-detect project from cwd; fail fast on ambiguous (REQ-308, REQ-309)
-		detRes, err := resolveWriteProject()
+		detRes, err := resolveWriteProjectWithEnforcement(activity)
 		if err != nil {
 			return writeProjectErrorResult(nil, "", detRes, err), nil
 		}
@@ -1650,7 +1702,7 @@ func handleSessionStart(s *store.Store, cfg MCPConfig, activity *SessionActivity
 		resolvedDirectory := strings.TrimSpace(directory)
 		// project field intentionally not read — auto-detect only (REQ-308)
 
-		detRes, err := resolveSessionStartProject(resolvedDirectory)
+		detRes, err := resolveSessionStartProject(resolvedDirectory, activity)
 		if err != nil {
 			return writeProjectErrorResult(nil, "", detRes, err), nil
 		}
@@ -1673,9 +1725,9 @@ func handleSessionStart(s *store.Store, cfg MCPConfig, activity *SessionActivity
 	}
 }
 
-func resolveSessionStartProject(explicitDirectory string) (projectpkg.DetectionResult, error) {
+func resolveSessionStartProject(explicitDirectory string, activity *SessionActivity) (projectpkg.DetectionResult, error) {
 	if explicitDirectory == "" {
-		return resolveWriteProject()
+		return resolveWriteProjectWithEnforcement(activity)
 	}
 	res := projectpkg.DetectProjectFull(explicitDirectory)
 	if res.Error != nil {
@@ -1724,7 +1776,7 @@ func handleCapturePassive(s *store.Store, cfg MCPConfig, activity *SessionActivi
 		source, _ := req.GetArguments()["source"].(string)
 		// project field intentionally not read — auto-detect only (REQ-308)
 
-		detRes, err := resolveWriteProject()
+		detRes, err := resolveWriteProjectWithEnforcement(activity)
 		if err != nil {
 			return writeProjectErrorResult(nil, "", detRes, err), nil
 		}
@@ -2020,6 +2072,35 @@ func (e *sessionProjectMismatchError) Error() string {
 	return fmt.Sprintf("session %q belongs to project %q, not %q", e.SessionID, e.SessionProject, e.ExplicitProject)
 }
 
+// noProjectContextError is returned by write tools when no project can be
+// determined from process override, workspace binding, or git CWD detection.
+// The caller must invoke mem_use_workspace before writing.
+type noProjectContextError struct{}
+
+func (e *noProjectContextError) Error() string {
+	return "project could not be determined — call mem_use_workspace(<workspace_path>) before writing"
+}
+
+// resolveWriteProjectWithEnforcement resolves the write project using the
+// workspace binding (step 2 of the Cascade fallback chain) or git-backed CWD
+// detection (step 3). Returns noProjectContextError when only dir_basename
+// detection is available and no workspace is bound.
+func resolveWriteProjectWithEnforcement(activity *SessionActivity) (projectpkg.DetectionResult, error) {
+	if activity != nil {
+		if res, ok := activity.WorkspaceProject(); ok {
+			return res, nil
+		}
+	}
+	res, err := resolveWriteProject()
+	if err != nil {
+		return res, err
+	}
+	if res.Source == projectpkg.SourceDirBasename {
+		return res, &noProjectContextError{}
+	}
+	return res, nil
+}
+
 // resolveWriteProject detects the current project from the process working
 // directory. Returns ErrAmbiguousProject if cwd is a parent of multiple repos.
 func resolveWriteProject() (projectpkg.DetectionResult, error) {
@@ -2048,18 +2129,18 @@ func processProjectResult(project string) (projectpkg.DetectionResult, bool) {
 	}, true
 }
 
-func resolveWriteProjectWithProcessOverride(defaultProject string) (projectpkg.DetectionResult, error) {
+func resolveWriteProjectWithProcessOverride(activity *SessionActivity, defaultProject string) (projectpkg.DetectionResult, error) {
 	if res, ok := processProjectResult(defaultProject); ok {
 		return res, nil
 	}
-	return resolveWriteProject()
+	return resolveWriteProjectWithEnforcement(activity)
 }
 
 type ambiguousRecoveryTokenValidator func(projectpkg.DetectionResult, string) (provided bool, valid bool)
 
-func resolveWriteProjectWithChoiceAndProcessOverride(projectChoice, reason string, validateToken ambiguousRecoveryTokenValidator, defaultProject string) (projectpkg.DetectionResult, error) {
+func resolveWriteProjectWithChoiceAndProcessOverride(projectChoice, reason string, validateToken ambiguousRecoveryTokenValidator, defaultProject string, activity *SessionActivity) (projectpkg.DetectionResult, error) {
 	if strings.TrimSpace(projectChoice) == "" {
-		return resolveWriteProjectWithProcessOverride(defaultProject)
+		return resolveWriteProjectWithProcessOverride(activity, defaultProject)
 	}
 	return resolveWriteProjectWithChoice(projectChoice, reason, validateToken)
 }
@@ -2119,16 +2200,21 @@ func resolveWriteProjectWithChoice(projectChoice, reason string, validateToken a
 	return res, nil
 }
 
-func resolveSaveWriteProjectWithProcessOverride(s *store.Store, projectChoice string, explicitProjectProvided bool, reason, sessionID string, validateToken ambiguousRecoveryTokenValidator, defaultProject string) (projectpkg.DetectionResult, error) {
+func resolveSaveWriteProjectWithProcessOverride(s *store.Store, projectChoice string, explicitProjectProvided bool, reason, sessionID string, validateToken ambiguousRecoveryTokenValidator, defaultProject string, activity *SessionActivity) (projectpkg.DetectionResult, error) {
 	if !explicitProjectProvided && strings.TrimSpace(projectChoice) == "" && strings.TrimSpace(sessionID) == "" && strings.TrimSpace(reason) == "" {
 		if processRes, ok := processProjectResult(defaultProject); ok {
 			return processRes, nil
 		}
+		if activity != nil {
+			if wsRes, ok := activity.WorkspaceProject(); ok {
+				return wsRes, nil
+			}
+		}
 	}
-	return resolveSaveWriteProject(s, projectChoice, explicitProjectProvided, reason, sessionID, validateToken)
+	return resolveSaveWriteProject(s, projectChoice, explicitProjectProvided, reason, sessionID, validateToken, activity)
 }
 
-func resolveSaveWriteProject(s *store.Store, projectChoice string, explicitProjectProvided bool, reason, sessionID string, validateToken ambiguousRecoveryTokenValidator) (projectpkg.DetectionResult, error) {
+func resolveSaveWriteProject(s *store.Store, projectChoice string, explicitProjectProvided bool, reason, sessionID string, validateToken ambiguousRecoveryTokenValidator, activity *SessionActivity) (projectpkg.DetectionResult, error) {
 	trimmedSessionID := strings.TrimSpace(sessionID)
 	trimmedProjectChoice := strings.TrimSpace(projectChoice)
 	trimmedReason := strings.TrimSpace(reason)
@@ -2283,7 +2369,7 @@ func resolveSaveWriteProject(s *store.Store, projectChoice string, explicitProje
 		}, nil
 	}
 
-	return resolveWriteProject()
+	return resolveWriteProjectWithEnforcement(activity)
 }
 
 func explicitWriteProjectCollision(trimmedRawProject, normalizedProject, sessionProject string, cwdRes projectpkg.DetectionResult) *normalizedProjectCollisionError {
@@ -2537,6 +2623,10 @@ func respondWithProject(res projectpkg.DetectionResult, text string, extra map[s
 }
 
 func writeProjectErrorResult(activity *SessionActivity, sessionID string, res projectpkg.DetectionResult, err error) *mcp.CallToolResult {
+	var noCtxErr *noProjectContextError
+	if errors.As(err, &noCtxErr) {
+		return errorWithMeta("no_project_context", noCtxErr.Error(), nil)
+	}
 	code := "ambiguous_project"
 	if errors.Is(err, projectpkg.ErrInvalidConfig) {
 		code = "invalid_project_config"
@@ -2668,6 +2758,8 @@ func errorWithMeta(code, msg string, availableProjects []string) *mcp.CallToolRe
 		envelope["hint"] = "Start the session first, omit session_id, or retry with an existing session_id."
 	case "session_project_mismatch":
 		envelope["hint"] = "Use a project that matches the existing session, or omit session_id and write to a different project."
+	case "no_project_context":
+		envelope["hint"] = "Call mem_use_workspace(<workspace_path>) with the absolute path to your project workspace before calling any write tool."
 	}
 	out, _ := jsonMarshal(envelope)
 	result := mcp.NewToolResultText(string(out))

@@ -8,16 +8,26 @@ import (
 	"slices"
 	"sync"
 	"time"
+
+	projectpkg "github.com/yuberalberto/engram-lite/internal/project"
 )
+
+const sourceWorkspaceBinding = "workspace_binding"
 
 const ambiguousProjectRecoveryTTL = 5 * time.Minute
 
 // SessionActivity tracks tool call activity for save reminders and activity scores.
 type SessionActivity struct {
-	mu         sync.Mutex
-	sessions   map[string]*sessionState
-	nudgeAfter time.Duration
-	now        func() time.Time // injectable for testing
+	mu              sync.Mutex
+	sessions        map[string]*sessionState
+	nudgeAfter      time.Duration
+	now             func() time.Time // injectable for testing
+	workspaceResult *workspaceBinding
+}
+
+type workspaceBinding struct {
+	project string
+	path    string
 }
 
 type sessionState struct {
@@ -65,6 +75,30 @@ func (a *SessionActivity) getOrCreate(sessionID string) *sessionState {
 		a.sessions[sessionID] = s
 	}
 	return s
+}
+
+// SetWorkspace stores a connection-scoped workspace binding. Subsequent calls to
+// project-resolution helpers will use this as the authoritative project when no
+// process-level override (cfg.DefaultProject) is configured.
+func (a *SessionActivity) SetWorkspace(project, path string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.workspaceResult = &workspaceBinding{project: project, path: path}
+}
+
+// WorkspaceProject returns the session-scoped workspace binding set by
+// mem_use_workspace, or (zero, false) if none has been set.
+func (a *SessionActivity) WorkspaceProject() (projectpkg.DetectionResult, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.workspaceResult == nil {
+		return projectpkg.DetectionResult{}, false
+	}
+	return projectpkg.DetectionResult{
+		Project: a.workspaceResult.project,
+		Source:  sourceWorkspaceBinding,
+		Path:    a.workspaceResult.path,
+	}, true
 }
 
 // RecordToolCall increments the tool call counter for a session.
