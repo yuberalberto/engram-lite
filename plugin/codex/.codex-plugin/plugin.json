@@ -1,0 +1,24 @@
+{
+  "name": "engram-lite",
+  "version": "0.1.11",
+  "description": "Project-local persistent memory for AI coding agents. Single binary, zero dependencies.",
+  "author": {
+    "name": "yuberalberto",
+    "url": "https://github.com/yuberalberto"
+  },
+  "homepage": "https://github.com/yuberalberto/engram-lite",
+  "repository": "https://github.com/yuberalberto/engram-lite",
+  "license": "MIT",
+  "keywords": ["memory", "mcp", "codex", "agent"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "engram-lite",
+    "shortDescription": "Project-local memory for Codex.",
+    "longDescription": "Adds engram-lite MCP tools and Codex instructions for project-local persistent memory.",
+    "developerName": "yuberalberto",
+    "category": "Productivity",
+    "capabilities": ["MCP", "Memory"],
+    "websiteURL": "https://github.com/yuberalberto/engram-lite"
+  }
+}

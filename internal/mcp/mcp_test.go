@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
+	mcppkg "github.com/mark3labs/mcp-go/mcp"
 	"github.com/yuberalberto/engram-lite/internal/project"
 	"github.com/yuberalberto/engram-lite/internal/store"
-	mcppkg "github.com/mark3labs/mcp-go/mcp"
 )
 
 func newMCPTestStore(t *testing.T) *store.Store {
@@ -6671,6 +6671,7 @@ func workspaceWithConfig(t *testing.T, projectName string) string {
 func TestUseWorkspace__should_resolve_project__when_config_present(t *testing.T) {
 	dir := workspaceWithConfig(t, "my-workspace-project")
 	activity := NewSessionActivity(10 * time.Minute)
+	t.Cleanup(activity.CloseWorkspaceStore)
 	h := handleUseWorkspace(activity)
 
 	res, err := h(context.Background(), mcppkg.CallToolRequest{Params: mcppkg.CallToolParams{Arguments: map[string]any{
@@ -6714,6 +6715,7 @@ func TestUseWorkspace__should_route_writes_to_workspace__after_binding(t *testin
 
 	globalStore := newMCPTestStore(t)
 	activity := NewSessionActivity(10 * time.Minute)
+	t.Cleanup(activity.CloseWorkspaceStore)
 
 	// Bind session to workspace — this opens the workspace store inside activity.
 	useWs := handleUseWorkspace(activity)
@@ -6765,6 +6767,7 @@ func TestUseWorkspace__should_update_workspace__when_called_twice(t *testing.T) 
 	dir1 := workspaceWithConfig(t, "first-project")
 	dir2 := workspaceWithConfig(t, "second-project")
 	activity := NewSessionActivity(10 * time.Minute)
+	t.Cleanup(activity.CloseWorkspaceStore)
 	h := handleUseWorkspace(activity)
 
 	// First binding.

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -44,6 +45,18 @@ func TestCmdInit__should_create_data_dir_and_ide_config__when_fresh_workspace(t 
 	mcpPath := filepath.Join(ws, ".windsurf", "mcp.json")
 	if got := readMCPDataDir(t, mcpPath); got != dataDir {
 		t.Errorf("ENGRAM_DATA_DIR = %q; want %q", got, dataDir)
+	}
+
+	codexConfigPath := filepath.Join(ws, ".codex", "config.toml")
+	codexConfig, err := os.ReadFile(codexConfigPath)
+	if err != nil {
+		t.Fatalf("Codex config not created: %v", err)
+	}
+	if !strings.Contains(string(codexConfig), `[mcp_servers."engram-lite"]`) {
+		t.Error("Codex config does not contain engram-lite MCP server")
+	}
+	if !strings.Contains(string(codexConfig), "ENGRAM_DATA_DIR") {
+		t.Error("Codex config does not pin ENGRAM_DATA_DIR")
 	}
 }
 

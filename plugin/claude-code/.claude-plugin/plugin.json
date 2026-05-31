@@ -1,7 +1,7 @@
 {
   "name": "engram-lite",
   "description": "Project-local persistent memory for AI coding agents. Single binary, zero dependencies.",
-  "version": "0.1.5",
+  "version": "0.1.11",
   "author": {
     "name": "yuberalberto"
   },

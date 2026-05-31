@@ -34,6 +34,20 @@ claude plugin add github:yuberalberto/engram-lite
 
 Restart Claude Code. No MCP config needed — the plugin handles everything.
 
+#### Codex
+
+`engram-lite init` writes a project-level Codex MCP config at
+`.codex/config.toml`. Restart Codex after init.
+
+Codex only loads project-scoped `.codex/config.toml` for trusted projects. If
+Codex does not show the `engram-lite` MCP server after restart, trust the
+workspace in Codex and restart again.
+
+For plugin-based distribution, use the Codex plugin package in `plugin/codex`.
+It exposes the MCP server and a Codex-specific memory skill without hooks. The
+Codex package intentionally does not reuse the Claude Code plugin because Claude
+hooks are not part of the Codex runtime contract.
+
 #### Windsurf, VS Code, Cursor
 
 `engram-lite init` (Step 2) automatically writes a workspace-level MCP config for each IDE it detects. If no IDE config directories are found, it prompts you to select which ones to configure.

@@ -387,6 +387,17 @@ func runInit(workspaceRoot string, prompter ide.Prompter) error {
 		}
 	}
 
+	switch cr := ide.WriteCodexConfig(workspaceRoot, dataDir); cr.Kind {
+	case ide.ResultCreated:
+		fmt.Println("  Codex MCP config created: .codex/config.toml")
+	case ide.ResultMerged:
+		fmt.Println("  Codex MCP config updated: .codex/config.toml (engram-lite entry added)")
+	case ide.ResultSkipped:
+		fmt.Println("  Codex MCP config unchanged: .codex/config.toml (engram-lite already configured)")
+	case ide.ResultError:
+		fmt.Printf("  Codex MCP config error: %v\n", cr.Err)
+	}
+
 	switch wr := ide.WriteWindsurfRule(workspaceRoot); wr.Kind {
 	case ide.ResultCreated:
 		fmt.Println("  Windsurf rule created: .windsurf/rules.md")

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "engram-lite": {
+      "command": "engram-lite",
+      "args": ["mcp", "--tools=agent"]
+    }
+  }
+}
