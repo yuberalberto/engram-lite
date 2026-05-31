@@ -332,7 +332,6 @@ func cmdUpdate() {
 	installStderr, err := runGoInstall(target)
 	if err != nil {
 		if strings.Contains(installStderr, "being used by another process") {
-			fmt.Println("  Binary in use — retrying via rename...")
 			if retryErr := retryInstallWithRename(target); retryErr != nil {
 				fmt.Fprintf(os.Stderr, "Update failed: %v\n", retryErr)
 				fmt.Fprintln(os.Stderr, "Close any IDE/agent using engram-lite and retry.")

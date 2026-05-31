@@ -151,9 +151,6 @@ func TestCmdUpdate__should_succeed_via_rename__when_binary_in_use(t *testing.T) 
 	if calls != 2 {
 		t.Fatalf("expected runGoInstall called twice, got %d", calls)
 	}
-	if !strings.Contains(out, "Binary in use") {
-		t.Fatalf("expected retry message, got:\n%s", out)
-	}
 	if !strings.Contains(out, "Update complete") {
 		t.Fatalf("expected success message, got:\n%s", out)
 	}
