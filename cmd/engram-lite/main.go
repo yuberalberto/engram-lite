@@ -79,8 +79,12 @@ var (
 		cmd := exec.Command("go", "install", target)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
-		return stderrBuf.String(), cmd.Run()
+		err := cmd.Run()
+		return stderrBuf.String(), err
 	}
+	osExecutable = os.Executable
+	osRename     = os.Rename
+	osRemove     = os.Remove
 	readInstalledVersion = func() (string, error) {
 		out, err := exec.Command("engram-lite", "version").Output()
 		if err != nil {
@@ -286,6 +290,24 @@ func backupDB(dataDir string) {
 
 // ─── Commands ────────────────────────────────────────────────────────────────
 
+func retryInstallWithRename(target string) error {
+	exePath, err := osExecutable()
+	if err != nil {
+		return fmt.Errorf("cannot locate current binary: %w", err)
+	}
+	oldPath := exePath + ".old"
+	if err := osRename(exePath, oldPath); err != nil {
+		return fmt.Errorf("cannot rename running binary: %w", err)
+	}
+	_, err = runGoInstall(target)
+	if err != nil {
+		osRename(oldPath, exePath) // best-effort restore
+		return err
+	}
+	osRemove(oldPath) // best-effort cleanup
+	return nil
+}
+
 func cmdUpdate() {
 	fmt.Println("Updating engram-lite CLI...")
 	fmt.Println("  This updates the installed binary only. It does not modify workspace files.")
@@ -310,19 +332,23 @@ func cmdUpdate() {
 	installStderr, err := runGoInstall(target)
 	if err != nil {
 		if strings.Contains(installStderr, "being used by another process") {
-			fmt.Fprintln(os.Stderr, "\nCannot overwrite engram-lite.exe while it is running.")
-			fmt.Fprintln(os.Stderr, "Stop all IDE/agent processes that use engram-lite (Windsurf, VS Code, Cursor, Codex),")
-			fmt.Fprintln(os.Stderr, "then retry:")
-			fmt.Fprintln(os.Stderr, "  engram-lite update")
+			fmt.Println("  Binary in use — retrying via rename...")
+			if retryErr := retryInstallWithRename(target); retryErr != nil {
+				fmt.Fprintf(os.Stderr, "Update failed: %v\n", retryErr)
+				fmt.Fprintln(os.Stderr, "Close any IDE/agent using engram-lite and retry.")
+				exitFunc(1)
+				return
+			}
+			err = nil
 		} else {
 			fmt.Fprintf(os.Stderr, "Update failed: %v\n", err)
 			fmt.Fprintf(os.Stderr, "Make sure Go is installed and GOPATH/bin is in your PATH.\n")
 			if latest != "" {
 				printGoProxyFallback(latest)
 			}
+			exitFunc(1)
+			return
 		}
-		exitFunc(1)
-		return
 	}
 
 	installed, err := readInstalledVersion()

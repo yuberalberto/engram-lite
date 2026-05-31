@@ -84,7 +84,82 @@ func TestCmdUpdate__should_explain_go_proxy_delay__when_installed_version_stays_
 	}
 }
 
-func TestCmdUpdate__should_explain_file_in_use__when_windows_binary_locked(t *testing.T) {
+func withRenameStubs(t *testing.T, exePath string, renameErr error) {
+	t.Helper()
+	oldExe := osExecutable
+	oldRename := osRename
+	oldRemove := osRemove
+	t.Cleanup(func() {
+		osExecutable = oldExe
+		osRename = oldRename
+		osRemove = oldRemove
+	})
+	osExecutable = func() (string, error) { return exePath, nil }
+	osRename = func(oldpath, newpath string) error { return renameErr }
+	osRemove = func(name string) error { return nil }
+}
+
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	fn()
+	_ = w.Close()
+	os.Stderr = old
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, r)
+	_ = r.Close()
+	return buf.String()
+}
+
+func TestCmdUpdate__should_succeed_via_rename__when_binary_in_use(t *testing.T) {
+	calls := 0
+	oldVersion := version
+	oldLatest := latestReleaseVersion
+	oldInstall := runGoInstall
+	oldReadInstalled := readInstalledVersion
+	oldExit := exitFunc
+	t.Cleanup(func() {
+		version = oldVersion
+		latestReleaseVersion = oldLatest
+		runGoInstall = oldInstall
+		readInstalledVersion = oldReadInstalled
+		exitFunc = oldExit
+	})
+
+	version = "1.2.2"
+	latestReleaseVersion = func() (string, versioncheck.CheckResult) {
+		return "1.2.3", versioncheck.CheckResult{Status: versioncheck.StatusUpToDate, Latest: "1.2.3"}
+	}
+	runGoInstall = func(target string) (string, error) {
+		calls++
+		if calls == 1 {
+			return "open engram-lite.exe: The process cannot access the file because it is being used by another process.", errors.New("exit status 1")
+		}
+		return "", nil
+	}
+	readInstalledVersion = func() (string, error) { return "1.2.3", nil }
+	exitFunc = func(int) { t.Error("exitFunc called unexpectedly") }
+	withRenameStubs(t, "/go/bin/engram-lite.exe", nil)
+
+	out := captureStdout(t, cmdUpdate)
+
+	if calls != 2 {
+		t.Fatalf("expected runGoInstall called twice, got %d", calls)
+	}
+	if !strings.Contains(out, "Binary in use") {
+		t.Fatalf("expected retry message, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Update complete") {
+		t.Fatalf("expected success message, got:\n%s", out)
+	}
+}
+
+func TestCmdUpdate__should_fail_gracefully__when_rename_fails(t *testing.T) {
 	oldVersion := version
 	oldLatest := latestReleaseVersion
 	oldInstall := runGoInstall
@@ -104,22 +179,11 @@ func TestCmdUpdate__should_explain_file_in_use__when_windows_binary_locked(t *te
 		return "open engram-lite.exe: The process cannot access the file because it is being used by another process.", errors.New("exit status 1")
 	}
 	exitFunc = func(int) {}
+	withRenameStubs(t, "/go/bin/engram-lite.exe", errors.New("access denied"))
 
-	var stderrBuf bytes.Buffer
-	old := os.Stderr
-	r, w, _ := os.Pipe()
-	os.Stderr = w
-	cmdUpdate()
-	_ = w.Close()
-	os.Stderr = old
-	io.Copy(&stderrBuf, r)
-	_ = r.Close()
-	out := stderrBuf.String()
+	errOut := captureStderr(t, cmdUpdate)
 
-	if !strings.Contains(out, "Cannot overwrite engram-lite.exe while it is running") {
-		t.Fatalf("expected file-in-use guidance, got:\n%s", out)
-	}
-	if !strings.Contains(out, "engram-lite update") {
-		t.Fatalf("expected retry instruction, got:\n%s", out)
+	if !strings.Contains(errOut, "Update failed") {
+		t.Fatalf("expected failure message, got:\n%s", errOut)
 	}
 }
