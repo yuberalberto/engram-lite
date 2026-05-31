@@ -12,6 +12,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -73,11 +74,12 @@ var (
 
 	exitFunc = os.Exit
 
-	runGoInstall = func(target string) error {
+	runGoInstall = func(target string) (string, error) {
+		var stderrBuf bytes.Buffer
 		cmd := exec.Command("go", "install", target)
 		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		return cmd.Run()
+		cmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
+		return stderrBuf.String(), cmd.Run()
 	}
 	readInstalledVersion = func() (string, error) {
 		out, err := exec.Command("engram-lite", "version").Output()
@@ -305,11 +307,19 @@ func cmdUpdate() {
 	}
 
 	target := "github.com/yuberalberto/engram-lite/cmd/engram-lite@" + targetVersion
-	if err := runGoInstall(target); err != nil {
-		fmt.Fprintf(os.Stderr, "Update failed: %v\n", err)
-		fmt.Fprintf(os.Stderr, "Make sure Go is installed and GOPATH/bin is in your PATH.\n")
-		if latest != "" {
-			printGoProxyFallback(latest)
+	installStderr, err := runGoInstall(target)
+	if err != nil {
+		if strings.Contains(installStderr, "being used by another process") {
+			fmt.Fprintln(os.Stderr, "\nCannot overwrite engram-lite.exe while it is running.")
+			fmt.Fprintln(os.Stderr, "Stop all IDE/agent processes that use engram-lite (Windsurf, VS Code, Cursor, Codex),")
+			fmt.Fprintln(os.Stderr, "then retry:")
+			fmt.Fprintln(os.Stderr, "  engram-lite update")
+		} else {
+			fmt.Fprintf(os.Stderr, "Update failed: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Make sure Go is installed and GOPATH/bin is in your PATH.\n")
+			if latest != "" {
+				printGoProxyFallback(latest)
+			}
 		}
 		exitFunc(1)
 		return
