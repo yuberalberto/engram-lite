@@ -35,6 +35,7 @@ const (
 type CheckResult struct {
 	Status  CheckStatus
 	Message string
+	Latest  string
 }
 
 // githubRelease is the subset of the GitHub releases API we care about.
@@ -52,12 +53,44 @@ func CheckLatest(current string) CheckResult {
 		return checkFailed("Could not check for updates: development builds do not map to a release version.")
 	}
 
+	latest, latestResult := LatestReleaseVersion()
+	if latestResult.Status == StatusCheckFailed {
+		return latestResult
+	}
+
+	running := normalizeVersion(current)
+
+	if latest == "" {
+		return checkFailed("Could not check for updates: GitHub did not return a release version.")
+	}
+
+	if latest == running {
+		return CheckResult{Status: StatusUpToDate, Latest: latest}
+	}
+
+	if !isNewer(latest, running) {
+		return CheckResult{Status: StatusUpToDate, Latest: latest}
+	}
+
+	return CheckResult{
+		Status: StatusUpdateAvailable,
+		Latest: latest,
+		Message: fmt.Sprintf(
+			"Update available: %s -> %s\nTo update:\n%s",
+			running, latest, updateInstructions(),
+		),
+	}
+}
+
+// LatestReleaseVersion returns the latest GitHub release version without
+// comparing it to the running binary.
+func LatestReleaseVersion() (string, CheckResult) {
 	ctx, cancel := context.WithTimeout(context.Background(), checkTimeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, githubLatestReleaseURL, nil)
 	if err != nil {
-		return checkFailed("Could not check for updates: could not create the GitHub request.")
+		return "", checkFailed("Could not check for updates: could not create the GitHub request.")
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	if token := githubToken(); token != "" {
@@ -67,43 +100,26 @@ func CheckLatest(current string) CheckResult {
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return checkFailed("Could not check for updates: GitHub took too long to respond.")
+			return "", checkFailed("Could not check for updates: GitHub took too long to respond.")
 		}
-		return checkFailed(fmt.Sprintf("Could not check for updates: %v.", err))
+		return "", checkFailed(fmt.Sprintf("Could not check for updates: %v.", err))
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return checkFailed(nonOKStatusMessage(resp.Status))
+		return "", checkFailed(nonOKStatusMessage(resp.Status))
 	}
 
 	var release githubRelease
 	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return checkFailed("Could not check for updates: could not read the GitHub response.")
+		return "", checkFailed("Could not check for updates: could not read the GitHub response.")
 	}
 
 	latest := normalizeVersion(release.TagName)
-	running := normalizeVersion(current)
-
 	if latest == "" {
-		return checkFailed("Could not check for updates: GitHub did not return a release version.")
+		return "", checkFailed("Could not check for updates: GitHub did not return a release version.")
 	}
-
-	if latest == running {
-		return CheckResult{Status: StatusUpToDate}
-	}
-
-	if !isNewer(latest, running) {
-		return CheckResult{Status: StatusUpToDate}
-	}
-
-	return CheckResult{
-		Status: StatusUpdateAvailable,
-		Message: fmt.Sprintf(
-			"Update available: %s -> %s\nTo update:\n%s",
-			running, latest, updateInstructions(),
-		),
-	}
+	return latest, CheckResult{Status: StatusUpToDate, Latest: latest}
 }
 
 // normalizeVersion strips a leading "v" prefix.
@@ -150,11 +166,11 @@ func splitVersion(v string) [3]int {
 func updateInstructions() string {
 	switch runtime.GOOS {
 	case "darwin":
-		return "  brew update && brew upgrade engram"
+		return "  go install github.com/yuberalberto/engram-lite/cmd/engram-lite@latest"
 	case "linux":
-		return "  brew update && brew upgrade engram\n  or: go install github.com/yuberalberto/engram-lite/cmd/engram@latest"
+		return "  go install github.com/yuberalberto/engram-lite/cmd/engram-lite@latest"
 	default:
-		return "  go install github.com/yuberalberto/engram-lite/cmd/engram@latest\n  or: https://github.com/yuberalberto/engram-lite/releases/latest"
+		return "  go install github.com/yuberalberto/engram-lite/cmd/engram-lite@latest\n  or: https://github.com/yuberalberto/engram-lite/releases/latest"
 	}
 }
 

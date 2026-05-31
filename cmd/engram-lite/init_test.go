@@ -60,7 +60,7 @@ func TestCmdInit__should_create_data_dir_and_ide_config__when_fresh_workspace(t 
 	}
 }
 
-func TestCmdInit__should_run_ide_config_step__when_already_initialized(t *testing.T) {
+func TestCmdInit__should_not_update_generated_files__when_already_initialized(t *testing.T) {
 	ws := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(ws, ".windsurf"), 0o755); err != nil {
 		t.Fatal(err)
@@ -76,14 +76,36 @@ func TestCmdInit__should_run_ide_config_step__when_already_initialized(t *testin
 		t.Fatal(err)
 	}
 
-	// Second run: data dir already exists, but IDE step must still run
+	// Second run: init is first-run only and must not reconcile generated files
 	if err := runInit(ws, nil); err != nil {
 		t.Fatalf("second runInit: %v", err)
 	}
 
-	dataDir := filepath.Join(ws, ".engram-lite")
+	if _, err := os.Stat(filepath.Join(ws, ".vscode", "mcp.json")); !os.IsNotExist(err) {
+		t.Fatalf("init re-run should not create .vscode/mcp.json, got err=%v", err)
+	}
+}
+
+func TestCmdUpdateInit__should_run_generated_file_step__when_already_initialized(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws, ".windsurf"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runInit(ws, nil); err != nil {
+		t.Fatalf("first runInit: %v", err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(ws, ".vscode"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runUpdateInit(ws, nil); err != nil {
+		t.Fatalf("runUpdateInit: %v", err)
+	}
 
 	// .vscode/mcp.json must have been created on re-run
+	dataDir := filepath.Join(ws, ".engram-lite")
 	mcpPath := filepath.Join(ws, ".vscode", "mcp.json")
 	if got := readMCPDataDir(t, mcpPath); got != dataDir {
 		t.Errorf("re-run: .vscode ENGRAM_DATA_DIR = %q; want %q", got, dataDir)
@@ -188,5 +210,99 @@ func TestCmdInit__should_use_isolated_data_dirs__when_two_workspaces(t *testing.
 	}
 	if got1 == got2 {
 		t.Error("both workspaces have the same ENGRAM_DATA_DIR — they must be isolated")
+	}
+}
+
+func TestCmdInit__help_should_not_initialize_workspace(t *testing.T) {
+	ws := t.TempDir()
+	t.Chdir(ws)
+
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"engram-lite", "init", "--help"}
+
+	main()
+
+	if _, err := os.Stat(filepath.Join(ws, ".engram-lite")); !os.IsNotExist(err) {
+		t.Fatalf("init --help should not create .engram-lite, got err=%v", err)
+	}
+}
+
+func TestCmdRepairInit__should_recreate_missing_db_and_gitignore__when_config_valid(t *testing.T) {
+	ws := t.TempDir()
+	dataDir := filepath.Join(ws, ".engram-lite")
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dataDir, "config.json"), []byte(`{"project_name":"repair-project"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runRepairInit(ws); err != nil {
+		t.Fatalf("runRepairInit: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(dataDir, "engram.db")); err != nil {
+		t.Fatalf("engram.db not recreated: %v", err)
+	}
+	gitignore, err := os.ReadFile(filepath.Join(ws, ".gitignore"))
+	if err != nil {
+		t.Fatalf(".gitignore not created: %v", err)
+	}
+	if !strings.Contains(string(gitignore), ".engram-lite/*.db") {
+		t.Error(".gitignore database exclusions missing")
+	}
+}
+
+func TestCmdRepairInit__should_not_overwrite_invalid_config(t *testing.T) {
+	ws := t.TempDir()
+	dataDir := filepath.Join(ws, ".engram-lite")
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(dataDir, "config.json")
+	original := "{not json"
+	if err := os.WriteFile(configPath, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runRepairInit(ws); err != nil {
+		t.Fatalf("runRepairInit: %v", err)
+	}
+
+	after, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != original {
+		t.Error("repair-init overwrote invalid config.json")
+	}
+}
+
+func TestCmdUpdateInit__should_preserve_malformed_existing_config(t *testing.T) {
+	ws := t.TempDir()
+	if _, err := initializeWorkspaceBase(ws, true); err != nil {
+		t.Fatalf("initializeWorkspaceBase: %v", err)
+	}
+	vscodeDir := filepath.Join(ws, ".vscode")
+	if err := os.MkdirAll(vscodeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(vscodeDir, "mcp.json")
+	original := "{not json"
+	if err := os.WriteFile(cfgPath, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runUpdateInit(ws, nil); err != nil {
+		t.Fatalf("runUpdateInit: %v", err)
+	}
+
+	after, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != original {
+		t.Error("update-init overwrote malformed mcp.json")
 	}
 }

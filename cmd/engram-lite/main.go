@@ -29,12 +29,12 @@ import (
 	"time"
 
 	"github.com/yuberalberto/engram-lite/internal/diagnostic"
-	"github.com/yuberalberto/engram-lite/internal/ide"
 	"github.com/yuberalberto/engram-lite/internal/mcp"
 	"github.com/yuberalberto/engram-lite/internal/project"
 	"github.com/yuberalberto/engram-lite/internal/server"
 	"github.com/yuberalberto/engram-lite/internal/store"
 	"github.com/yuberalberto/engram-lite/internal/tui"
+	versioncheck "github.com/yuberalberto/engram-lite/internal/version"
 
 	tea "github.com/charmbracelet/bubbletea"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -72,6 +72,21 @@ var (
 	runTeaProgram = (*tea.Program).Run
 
 	exitFunc = os.Exit
+
+	runGoInstall = func(target string) error {
+		cmd := exec.Command("go", "install", target)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	}
+	readInstalledVersion = func() (string, error) {
+		out, err := exec.Command("engram-lite", "version").Output()
+		if err != nil {
+			return "", err
+		}
+		return parseVersionOutput(string(out)), nil
+	}
+	latestReleaseVersion = versioncheck.LatestReleaseVersion
 
 	stdinScanner = func() *bufio.Scanner { return bufio.NewScanner(os.Stdin) }
 
@@ -127,6 +142,11 @@ func main() {
 		exitFunc(1)
 	}
 
+	if hasHelpArg(os.Args[1:]) {
+		printUsage()
+		return
+	}
+
 	switch os.Args[1] {
 	case "version", "--version", "-v":
 		fmt.Printf("engram-lite %s\n", version)
@@ -136,6 +156,12 @@ func main() {
 		return
 	case "init":
 		cmdInit()
+		return
+	case "update-init":
+		cmdUpdateInit()
+		return
+	case "repair-init":
+		cmdRepairInit()
 		return
 	case "update":
 		cmdUpdate()
@@ -259,16 +285,54 @@ func backupDB(dataDir string) {
 // ─── Commands ────────────────────────────────────────────────────────────────
 
 func cmdUpdate() {
-	fmt.Println("Updating engram-lite...")
-	cmd := exec.Command("go", "install", "github.com/yuberalberto/engram-lite/cmd/engram-lite@latest")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	fmt.Println("Updating engram-lite CLI...")
+	fmt.Println("  This updates the installed binary only. It does not modify workspace files.")
+
+	latest, latestResult := latestReleaseVersion()
+	targetVersion := "latest"
+	if latestResult.Status == versioncheck.StatusCheckFailed {
+		fmt.Printf("  Latest release check: %s\n", latestResult.Message)
+		fmt.Println("  Falling back to Go's @latest resolution.")
+	} else {
+		targetVersion = "v" + latest
+		if normalizeVersionString(version) == latest {
+			fmt.Printf("Already up to date: %s\n", latest)
+			fmt.Println("\nTo refresh generated files in this workspace, run:")
+			fmt.Println("  engram-lite update-init")
+			return
+		}
+		fmt.Printf("  Latest release: %s\n", latest)
+	}
+
+	target := "github.com/yuberalberto/engram-lite/cmd/engram-lite@" + targetVersion
+	if err := runGoInstall(target); err != nil {
 		fmt.Fprintf(os.Stderr, "Update failed: %v\n", err)
 		fmt.Fprintf(os.Stderr, "Make sure Go is installed and GOPATH/bin is in your PATH.\n")
-		os.Exit(1)
+		if latest != "" {
+			printGoProxyFallback(latest)
+		}
+		exitFunc(1)
+		return
 	}
-	fmt.Println("Update complete. Run `engram-lite version` to verify.")
+
+	installed, err := readInstalledVersion()
+	if err != nil {
+		fmt.Println("Update command completed, but engram-lite could not verify the installed version.")
+		fmt.Println("Run `engram-lite version` to verify.")
+		return
+	}
+	fmt.Printf("  Installed version: %s\n", installed)
+
+	if latest != "" && normalizeVersionString(installed) != latest {
+		fmt.Printf("\nUpdate command completed, but the installed binary is still %s.\n", installed)
+		fmt.Printf("Latest GitHub release is %s.\n", latest)
+		printGoProxyFallback(latest)
+		return
+	}
+
+	fmt.Println("\nUpdate complete.")
+	fmt.Println("\nTo refresh generated files in this workspace, run:")
+	fmt.Println("  engram-lite update-init")
 }
 
 func cmdInit() {
@@ -277,6 +341,26 @@ func cmdInit() {
 		fatal(fmt.Errorf("engram-lite init: %w", err))
 	}
 	if err := runInit(projectRoot, &terminalPrompter{}); err != nil {
+		fatal(err)
+	}
+}
+
+func cmdUpdateInit() {
+	projectRoot, err := detectProjectRoot()
+	if err != nil {
+		fatal(fmt.Errorf("engram-lite update-init: %w", err))
+	}
+	if err := runUpdateInit(projectRoot, &terminalPrompter{}); err != nil {
+		fatal(err)
+	}
+}
+
+func cmdRepairInit() {
+	projectRoot, err := detectProjectRoot()
+	if err != nil {
+		fatal(fmt.Errorf("engram-lite repair-init: %w", err))
+	}
+	if err := runRepairInit(projectRoot); err != nil {
 		fatal(err)
 	}
 }
@@ -308,108 +392,36 @@ func (p *terminalPrompter) SelectIDEs(available []string) ([]string, error) {
 	return selected, nil
 }
 
-func runInit(workspaceRoot string, prompter ide.Prompter) error {
-	dataDir := filepath.Join(workspaceRoot, ".engram-lite")
-	configPath := filepath.Join(dataDir, "config.json")
-
-	alreadyInit := false
-	if _, err := os.Stat(dataDir); err == nil {
-		if _, err := os.Stat(configPath); err == nil {
-			alreadyInit = true
+func hasHelpArg(args []string) bool {
+	for _, arg := range args {
+		switch arg {
+		case "help", "--help", "-h":
+			return true
 		}
 	}
+	return false
+}
 
-	if !alreadyInit {
-		if err := os.MkdirAll(dataDir, 0o755); err != nil {
-			return fmt.Errorf("engram-lite init: create directory: %w", err)
-		}
-
-		projectName := filepath.Base(workspaceRoot)
-		result := project.DetectProjectFull(workspaceRoot)
-		if result.Project != "" {
-			projectName = result.Project
-		}
-
-		config := map[string]string{"project_name": projectName}
-		configBytes, _ := json.MarshalIndent(config, "", "  ")
-		if err := os.WriteFile(configPath, configBytes, 0o644); err != nil {
-			return fmt.Errorf("engram-lite init: write config: %w", err)
-		}
-
-		cfg := store.FallbackConfig(dataDir)
-		db, err := store.New(cfg)
-		if err != nil {
-			return fmt.Errorf("engram-lite init: create database: %w", err)
-		}
-		db.Close()
-
-		gitignorePath := filepath.Join(workspaceRoot, ".gitignore")
-		gitignoreEntry := ".engram-lite/*.db\n.engram-lite/*.db-wal\n.engram-lite/*.db-shm"
-		addedToGitignore := false
-		if content, err := os.ReadFile(gitignorePath); err == nil {
-			if !strings.Contains(string(content), ".engram-lite/*.db") {
-				f, err := os.OpenFile(gitignorePath, os.O_APPEND|os.O_WRONLY, 0o644)
-				if err == nil {
-					fmt.Fprintf(f, "\n# engram-lite database (config.json is safe to commit)\n%s\n", gitignoreEntry)
-					f.Close()
-					addedToGitignore = true
-				}
-			} else {
-				addedToGitignore = true
-			}
-		} else {
-			if err := os.WriteFile(gitignorePath, []byte(fmt.Sprintf("# engram-lite database (config.json is safe to commit)\n%s\n", gitignoreEntry)), 0o644); err == nil {
-				addedToGitignore = true
-			}
-		}
-
-		fmt.Printf("Initialized engram-lite in %s\n", dataDir)
-		fmt.Printf("  Project:  %s\n", projectName)
-		fmt.Printf("  Database: %s\n", filepath.Join(dataDir, "engram.db"))
-		fmt.Printf("  Config:   %s\n", configPath)
-		fmt.Printf("  Backup:   ~/.engram-lite/backups/%s/\n", projectName)
-		if addedToGitignore {
-			fmt.Printf("  Updated .gitignore (DB excluded, config.json committed)\n")
-		}
+func parseVersionOutput(output string) string {
+	fields := strings.Fields(strings.TrimSpace(output))
+	if len(fields) == 0 {
+		return ""
 	}
-
-	results := ide.WriteWorkspaceConfigs(workspaceRoot, dataDir, prompter)
-	for _, r := range results {
-		switch r.Kind {
-		case ide.ResultCreated:
-			fmt.Printf("  IDE MCP config created: %s\n", r.IDE)
-		case ide.ResultMerged:
-			fmt.Printf("  IDE MCP config updated: %s (engram-lite entry added)\n", r.IDE)
-		case ide.ResultSkipped:
-			fmt.Printf("  IDE MCP config unchanged: %s (engram-lite already configured)\n", r.IDE)
-		case ide.ResultError:
-			fmt.Printf("  IDE MCP config error: %s: %v\n", r.IDE, r.Err)
-		}
+	if len(fields) >= 2 && fields[0] == "engram-lite" {
+		return normalizeVersionString(fields[1])
 	}
+	return normalizeVersionString(fields[len(fields)-1])
+}
 
-	switch cr := ide.WriteCodexConfig(workspaceRoot, dataDir); cr.Kind {
-	case ide.ResultCreated:
-		fmt.Println("  Codex MCP config created: .codex/config.toml")
-	case ide.ResultMerged:
-		fmt.Println("  Codex MCP config updated: .codex/config.toml (engram-lite entry added)")
-	case ide.ResultSkipped:
-		fmt.Println("  Codex MCP config unchanged: .codex/config.toml (engram-lite already configured)")
-	case ide.ResultError:
-		fmt.Printf("  Codex MCP config error: %v\n", cr.Err)
-	}
+func normalizeVersionString(value string) string {
+	return strings.TrimPrefix(strings.TrimSpace(value), "v")
+}
 
-	switch wr := ide.WriteWindsurfRule(workspaceRoot); wr.Kind {
-	case ide.ResultCreated:
-		fmt.Println("  Windsurf rule created: .windsurf/rules.md")
-	case ide.ResultMerged:
-		fmt.Println("  Windsurf rule added: .windsurf/rules.md (mem_use_workspace rule appended)")
-	case ide.ResultSkipped:
-		fmt.Println("  Windsurf rule unchanged: .windsurf/rules.md (already configured)")
-	case ide.ResultError:
-		fmt.Printf("  Windsurf rule error: %v\n", wr.Err)
-	}
-
-	return nil
+func printGoProxyFallback(latest string) {
+	fmt.Println()
+	fmt.Println("Go's module proxy may still be indexing the new release.")
+	fmt.Println("Try again in a few minutes, or install directly from GitHub now:")
+	fmt.Printf("  GOPROXY=direct go install github.com/yuberalberto/engram-lite/cmd/engram-lite@v%s\n", latest)
 }
 
 func cmdServe(cfg store.Config) {
@@ -1596,8 +1608,25 @@ Based on Engram (https://github.com/Gentleman-Programming/engram) by Gentleman P
 Usage:
   engram-lite <command> [arguments]
 
-Commands:
-  init               Initialize engram-lite in the current project
+Install CLI:
+  go install github.com/yuberalberto/engram-lite/cmd/engram-lite@latest
+                     Install engram-lite for the first time
+
+Update CLI:
+  update             Update the installed engram-lite binary
+
+Workspace setup:
+  init               Initialize a new workspace for the first time
+  update-init        Refresh generated workspace files after upgrading engram-lite
+  repair-init        Repair incomplete base workspace metadata
+
+Memory:
+  search <query>     Search memories [--type TYPE] [--project PROJECT] [--scope SCOPE] [--limit N]
+  save <title> <msg> Save a memory  [--type TYPE] [--project PROJECT] [--scope SCOPE]
+  context [project]  Show recent context from previous sessions
+  timeline <obs_id>  Show chronological context around an observation [--before N] [--after N]
+
+Agent services:
   serve [port]       Start HTTP API server (default: 7437)
   mcp [--tools=PROFILE]
                      Start MCP server (stdio transport, for any AI agent)
@@ -1605,11 +1634,9 @@ Commands:
                        Combine: --tools=agent,admin or pick individual tools
                        Example: engram-lite mcp --tools=agent
   tui                Launch interactive terminal UI
-  search <query>     Search memories [--type TYPE] [--project PROJECT] [--scope SCOPE] [--limit N]
-  save <title> <msg> Save a memory  [--type TYPE] [--project PROJECT] [--scope SCOPE]
-  timeline <obs_id>  Show chronological context around an observation [--before N] [--after N]
+
+Diagnostics and maintenance:
   doctor             Run read-only operational diagnostics [--json] [--project P] [--check CODE]
-  context [project]  Show recent context from previous sessions
   stats              Show memory system statistics
   export [file]      Export all memories to JSON (default: engram-export.json)
   import <file>      Import memories from a JSON export file
@@ -1622,8 +1649,6 @@ Commands:
   version            Print version
   help               Show this help
 
-  update             Update to the latest version
-
 Environment:
   ENGRAM_DATA_DIR    Override data directory (default: <project-root>/.engram-lite)
   ENGRAM_PORT        Override HTTP server port (default: 7437)
@@ -1634,16 +1659,18 @@ Data Storage:
   The project root is detected by walking up from cwd to find .git/.
   If no .git/ is found, cwd is used as project root.
 
-MCP Configuration (add to your agent's config):
-  {
-    "mcp": {
-      "engram": {
-        "type": "stdio",
-        "command": "engram-lite",
-        "args": ["mcp", "--tools=agent"]
-      }
-    }
-  }
+Common flows:
+  New workspace:
+    cd my-project
+    engram-lite init
+
+  After updating the CLI:
+    engram-lite update
+    cd my-project
+    engram-lite update-init
+
+  If workspace init looks incomplete:
+    engram-lite repair-init
 `, version)
 }
 

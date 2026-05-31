@@ -24,6 +24,18 @@ engram-lite init
 
 This creates `.engram-lite/` with a config file and the database. Database files are added to `.gitignore` automatically; `config.json` is safe to commit.
 
+After upgrading engram-lite, refresh generated workspace files with:
+
+```bash
+engram-lite update-init
+```
+
+If workspace initialization looks incomplete, repair base metadata with:
+
+```bash
+engram-lite repair-init
+```
+
 ### Step 3 — Connect your agent
 
 #### Claude Code
@@ -52,7 +64,7 @@ hooks are not part of the Codex runtime contract.
 
 `engram-lite init` (Step 2) automatically writes a workspace-level MCP config for each IDE it detects. If no IDE config directories are found, it prompts you to select which ones to configure.
 
-**Supported IDEs:** Windsurf, VS Code, Cursor
+**Supported IDEs:** Codex, Windsurf, VS Code, Cursor
 
 After running `init`, restart your IDE to pick up the new config.
 
@@ -82,7 +94,9 @@ Memory is stored at `<project-root>/.engram-lite/engram.db` — one database per
 
 | Command | Description |
 |---------|-------------|
-| `init` | Initialize engram-lite in the current project |
+| `init` | Initialize engram-lite in a new workspace |
+| `update-init` | Refresh generated workspace files after upgrading engram-lite |
+| `repair-init` | Repair incomplete base workspace metadata |
 | `mcp [--tools=PROFILE]` | Start MCP server (stdio) |
 | `serve [port]` | Start HTTP API server (default: 7437) |
 | `tui` | Launch interactive terminal UI |
@@ -136,7 +150,15 @@ cp ~/.engram-lite/backups/my-project/engram.db.bak ./.engram-lite/engram.db
 engram-lite update
 ```
 
-Or reinstall: `go install github.com/yuberalberto/engram-lite/cmd/engram-lite@latest`
+This updates the installed CLI binary only. It does not modify any workspace
+files. After updating, run `engram-lite update-init` inside each workspace where
+you want generated IDE configs refreshed.
+
+Or reinstall the CLI directly:
+
+```bash
+go install github.com/yuberalberto/engram-lite/cmd/engram-lite@latest
+```
 
 ## How it compares to Engram
 
